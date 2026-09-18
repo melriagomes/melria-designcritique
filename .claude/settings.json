@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".claude/hooks/build-log-stop.ps1\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
