@@ -1,0 +1,16 @@
+{
+  "name": "product-critic-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ergonomics reference-range sanity check for the product-critic skill. Zero runtime dependencies.",
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "ts-node ergonomics_reference_check.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

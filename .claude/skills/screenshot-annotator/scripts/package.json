@@ -1,0 +1,18 @@
+{
+  "name": "screenshot-annotator-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Draws numbered callout markers on a screenshot/image. Shared primitive used by the screenshot-annotator skill (and, via it, ux-critic).",
+  "scripts": {
+    "build": "tsc -p .",
+    "annotate": "ts-node annotate_callouts.ts"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.53"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

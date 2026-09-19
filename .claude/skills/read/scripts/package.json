@@ -1,0 +1,16 @@
+{
+  "name": "read-skill-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-dependency file/image structural scanner for the read skill.",
+  "scripts": {
+    "build": "tsc -p .",
+    "scan": "ts-node scan_file.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
