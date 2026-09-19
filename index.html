@@ -263,12 +263,25 @@ const sendBtn = document.getElementById('sendBtn');
 const hint = document.getElementById('hint');
 const settingsBtn = document.getElementById('settingsBtn');
 
-const GROQ_KEY_STORAGE = 'designCritiqueGroqApiKey';
-const FIGMA_TOKEN_STORAGE = 'designCritiqueFigmaApiToken';
+const API_KEYS_STORAGE = 'designCritiqueApiKeys';
+const ACTIVE_KEY_ID_STORAGE = 'designCritiqueActiveApiKeyId';
 
 settingsBtn.addEventListener('click', () => {
   window.location.href = '/settings';
 });
+
+// Returns the value of whichever saved key is marked active in Settings, or
+// null if none is set — matches the list settings.html manages.
+function getActiveApiKeyValue() {
+  try {
+    const keys = JSON.parse(localStorage.getItem(API_KEYS_STORAGE) || '[]');
+    const activeId = localStorage.getItem(ACTIVE_KEY_ID_STORAGE);
+    const active = keys.find((k) => k.id === activeId);
+    return active ? active.value : null;
+  } catch (err) {
+    return null;
+  }
+}
 
 let mode = 'image';
 let selectedFile = null;
@@ -435,18 +448,13 @@ sendBtn.addEventListener('click', async () => {
   }
   if (note) formData.append('note', note);
 
-  // Attach this visitor's own keys from Settings, if they saved any — the
-  // server uses these for this request only and falls back to its shared
-  // defaults when they're absent, so behavior is unchanged for anyone who
-  // hasn't set personal keys.
-  try {
-    const groqKey = localStorage.getItem(GROQ_KEY_STORAGE);
-    const figmaToken = localStorage.getItem(FIGMA_TOKEN_STORAGE);
-    if (groqKey) formData.append('groq_api_key', groqKey);
-    if (figmaToken) formData.append('figma_api_token', figmaToken);
-  } catch (err) {
-    // localStorage unavailable (e.g. private browsing) — just use server defaults.
-  }
+  // Attach whichever key this visitor marked active in Settings, if any —
+  // used to authenticate the URL fetch (Figma token for figma.com links,
+  // bearer token for anything else). Falls back to the server's shared
+  // Figma token when absent, and to no auth for other URLs — same as before
+  // for anyone who hasn't saved a key.
+  const activeKey = getActiveApiKeyValue();
+  if (activeKey) formData.append('access_token', activeKey);
 
   // Reset composer for the next turn.
   const usedFile = selectedFile;

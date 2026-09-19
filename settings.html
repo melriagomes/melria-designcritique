@@ -58,20 +58,25 @@
     padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 18px;
   }
 
-  .field-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+  .note-box {
+    font-size: 12.5px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    line-height: 1.5;
   }
-  .field-label-row {
+
+  .section-head {
     display: flex;
     align-items: center;
     gap: 6px;
   }
-  .field-label-row label { font-size: 14px; font-weight: 600; }
+  .section-head h2 { font-size: 14px; margin: 0; }
 
   .info-btn {
     border: 1px solid var(--border);
@@ -91,38 +96,61 @@
   }
   .info-btn:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
-  .input-row {
+  #keyList {
     display: flex;
+    flex-direction: column;
     gap: 8px;
   }
-  .input-row input {
-    flex: 1;
+  .key-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .key-row.active { border-color: var(--accent); background: #f0f5ff; }
+  .key-row input[type="radio"] { flex-shrink: 0; cursor: pointer; }
+  .key-row .key-info { flex: 1; min-width: 0; }
+  .key-row .key-name { font-size: 13.5px; font-weight: 600; }
+  .key-row .key-value { font-size: 12.5px; color: var(--muted); font-family: monospace; }
+  .key-row .key-remove {
+    border: none; background: none; color: var(--muted); cursor: pointer;
+    font-size: 12.5px; text-decoration: underline; flex-shrink: 0;
+  }
+  .empty-hint { font-size: 13px; color: var(--muted); padding: 6px 2px; }
+
+  #addKeyForm {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 4px;
+  }
+  #addKeyForm.open { display: flex; }
+  #addKeyForm input {
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 9px 12px;
     font-size: 14px;
     font-family: inherit;
   }
-  .toggle-visibility {
-    border: 1px solid var(--border);
+  .add-key-actions { display: flex; gap: 8px; }
+
+  #addKeyToggle {
+    align-self: flex-start;
+    border: 1px dashed var(--border);
     background: var(--bg);
     border-radius: 8px;
-    padding: 0 12px;
+    padding: 8px 12px;
     font-size: 13px;
     cursor: pointer;
     color: var(--text);
   }
 
-  .field-hint { font-size: 12px; color: var(--muted); margin: 0; }
-  .field-hint a { color: var(--accent); }
-
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 4px;
-  }
-  #saveBtn {
+  .btn-primary {
     background: var(--accent);
     color: white;
     border: none;
@@ -132,28 +160,16 @@
     font-weight: 600;
     cursor: pointer;
   }
-  #clearBtn {
-    border: none;
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 13px;
-    text-decoration: underline;
-  }
-  #saveStatus {
-    font-size: 13px;
-    color: #1a7f37;
-  }
-
-  .note-box {
-    font-size: 12.5px;
-    color: var(--muted);
-    background: var(--bg);
+  .btn-secondary {
     border: 1px solid var(--border);
+    background: var(--panel);
     border-radius: 8px;
-    padding: 10px 12px;
-    line-height: 1.5;
+    padding: 9px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text);
   }
+  #saveStatus { font-size: 13px; color: #1a7f37; }
 
   /* Modal */
   .modal-overlay {
@@ -200,48 +216,39 @@
     <button id="backBtn" type="button" title="Back" aria-label="Back to chat">←</button>
     <div>
       <h1>Settings</h1>
-      <p>Use your own keys instead of the app's shared defaults.</p>
+      <p>Add your own API keys and pick which one to use.</p>
     </div>
   </header>
 
   <main>
     <div class="note-box">
-      These are saved only in this browser (never sent anywhere except to this app's own server
-      when you send a critique). Leave a field blank to keep using the app's default key, if one
-      is configured.
+      Keys are saved only in this browser and sent to this app's own server just for the request
+      you're making. Add one key per site or service, then mark one <strong>active</strong> —
+      that's the one used the next time you paste a URL. A figma.com link uses the active key as a
+      Figma access token; any other URL sends it as a standard Authorization bearer token, so it
+      works for your own site or API too.
     </div>
 
-    <div class="field-group">
-      <div class="field-label-row">
-        <label for="groqKeyInput">Groq API Key</label>
-      </div>
-      <div class="input-row">
-        <input type="password" id="groqKeyInput" placeholder="gsk_..." autocomplete="off">
-        <button type="button" class="toggle-visibility" data-target="groqKeyInput">Show</button>
-      </div>
-      <p class="field-hint">
-        Powers the AI critique itself. Get a free key from
-        <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>.
-      </p>
+    <div class="section-head">
+      <h2>Your API keys</h2>
+      <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma token" aria-label="How to get a Figma token">i</button>
     </div>
 
-    <div class="field-group">
-      <div class="field-label-row">
-        <label for="figmaTokenInput">Figma API Token</label>
-        <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma token" aria-label="How to get a Figma token">i</button>
+    <div id="keyList"></div>
+    <div class="empty-hint" id="emptyHint" style="display:none;">No keys saved yet. Add one below.</div>
+
+    <button type="button" id="addKeyToggle">+ Add a key</button>
+
+    <div id="addKeyForm">
+      <input type="text" id="newKeyName" placeholder="Name (e.g. Figma, My website API)">
+      <input type="password" id="newKeyValue" placeholder="Key or token value" autocomplete="off">
+      <div class="add-key-actions">
+        <button type="button" class="btn-primary" id="newKeySave">Save key</button>
+        <button type="button" class="btn-secondary" id="newKeyCancel">Cancel</button>
       </div>
-      <div class="input-row">
-        <input type="password" id="figmaTokenInput" placeholder="figd_..." autocomplete="off">
-        <button type="button" class="toggle-visibility" data-target="figmaTokenInput">Show</button>
-      </div>
-      <p class="field-hint">Needed only if you paste Figma file/design links for critique.</p>
     </div>
 
-    <div class="actions">
-      <button id="saveBtn" type="button">Save</button>
-      <button id="clearBtn" type="button">Clear saved keys</button>
-      <span id="saveStatus"></span>
-    </div>
+    <span id="saveStatus"></span>
   </main>
 </div>
 
@@ -254,9 +261,10 @@
       <li>Click <strong>Generate new token</strong>, give it a name (e.g. "Design Critique Agent"), and set an expiry.</li>
       <li>Under scopes, select at minimum <strong>File content — Read only</strong>. This is what lets the token fetch a file's design so it can be rendered as an image for critique.</li>
       <li><em>Optional:</em> <strong>Current user — Read only</strong> is not required for critiques; it's only used by this app's diagnostics to confirm which account a token belongs to.</li>
-      <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Paste it into the field on this page and click Save.</li>
+      <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Add it below as a new key (name it something like "Figma") and mark it active.</li>
     </ol>
-    <p>Treat this token like a password — anyone with it can read any Figma file it has access to.</p>
+    <p>This is only for Figma links. For any other website, add its API key the same way — it'll be sent as a standard bearer token when you paste that site's URL.</p>
+    <p>Treat every key here like a password — anyone with it can access whatever it's scoped to.</p>
     <div class="modal-close-row">
       <button id="figmaInfoClose" type="button">Got it</button>
     </div>
@@ -264,62 +272,131 @@
 </div>
 
 <script>
-const GROQ_KEY_STORAGE = 'designCritiqueGroqApiKey';
-const FIGMA_TOKEN_STORAGE = 'designCritiqueFigmaApiToken';
+const KEYS_STORAGE = 'designCritiqueApiKeys';
+const ACTIVE_ID_STORAGE = 'designCritiqueActiveApiKeyId';
 
 const backBtn = document.getElementById('backBtn');
-const groqKeyInput = document.getElementById('groqKeyInput');
-const figmaTokenInput = document.getElementById('figmaTokenInput');
-const saveBtn = document.getElementById('saveBtn');
-const clearBtn = document.getElementById('clearBtn');
+const keyListEl = document.getElementById('keyList');
+const emptyHint = document.getElementById('emptyHint');
+const addKeyToggle = document.getElementById('addKeyToggle');
+const addKeyForm = document.getElementById('addKeyForm');
+const newKeyName = document.getElementById('newKeyName');
+const newKeyValue = document.getElementById('newKeyValue');
+const newKeySave = document.getElementById('newKeySave');
+const newKeyCancel = document.getElementById('newKeyCancel');
 const saveStatus = document.getElementById('saveStatus');
 const figmaInfoBtn = document.getElementById('figmaInfoBtn');
 const figmaInfoModal = document.getElementById('figmaInfoModal');
 const figmaInfoClose = document.getElementById('figmaInfoClose');
 
+let keys = [];
+let activeId = null;
+
+function load() {
+  try {
+    keys = JSON.parse(localStorage.getItem(KEYS_STORAGE) || '[]');
+    activeId = localStorage.getItem(ACTIVE_ID_STORAGE) || null;
+  } catch (err) {
+    keys = [];
+    activeId = null;
+  }
+}
+
+function persist() {
+  try {
+    localStorage.setItem(KEYS_STORAGE, JSON.stringify(keys));
+    if (activeId) localStorage.setItem(ACTIVE_ID_STORAGE, activeId);
+    else localStorage.removeItem(ACTIVE_ID_STORAGE);
+  } catch (err) {
+    saveStatus.textContent = 'Could not save (browser storage unavailable).';
+    setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+  }
+}
+
+function maskValue(v) {
+  if (v.length <= 6) return '•'.repeat(v.length);
+  return v.slice(0, 4) + '…' + v.slice(-2);
+}
+
+function render() {
+  keyListEl.innerHTML = '';
+  emptyHint.style.display = keys.length ? 'none' : 'block';
+
+  keys.forEach((key) => {
+    const row = document.createElement('div');
+    row.className = 'key-row' + (key.id === activeId ? ' active' : '');
+
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'activeKey';
+    radio.checked = key.id === activeId;
+    radio.addEventListener('change', () => {
+      activeId = key.id;
+      persist();
+      render();
+    });
+
+    const info = document.createElement('div');
+    info.className = 'key-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'key-name';
+    nameEl.textContent = key.name;
+    const valueEl = document.createElement('div');
+    valueEl.className = 'key-value';
+    valueEl.textContent = maskValue(key.value);
+    info.appendChild(nameEl);
+    info.appendChild(valueEl);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'key-remove';
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', () => {
+      keys = keys.filter((k) => k.id !== key.id);
+      if (activeId === key.id) activeId = null;
+      persist();
+      render();
+    });
+
+    row.appendChild(radio);
+    row.appendChild(info);
+    row.appendChild(removeBtn);
+    keyListEl.appendChild(row);
+  });
+}
+
 backBtn.addEventListener('click', () => {
   window.location.href = '/';
 });
 
-try {
-  groqKeyInput.value = localStorage.getItem(GROQ_KEY_STORAGE) || '';
-  figmaTokenInput.value = localStorage.getItem(FIGMA_TOKEN_STORAGE) || '';
-} catch (err) {
-  // localStorage unavailable (e.g. private browsing) — fields just start empty.
-}
-
-document.querySelectorAll('.toggle-visibility').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const target = document.getElementById(btn.dataset.target);
-    const showing = target.type === 'text';
-    target.type = showing ? 'password' : 'text';
-    btn.textContent = showing ? 'Show' : 'Hide';
-  });
+addKeyToggle.addEventListener('click', () => {
+  addKeyForm.classList.add('open');
+  newKeyName.focus();
 });
 
-saveBtn.addEventListener('click', () => {
-  try {
-    const groqKey = groqKeyInput.value.trim();
-    const figmaToken = figmaTokenInput.value.trim();
-    if (groqKey) localStorage.setItem(GROQ_KEY_STORAGE, groqKey); else localStorage.removeItem(GROQ_KEY_STORAGE);
-    if (figmaToken) localStorage.setItem(FIGMA_TOKEN_STORAGE, figmaToken); else localStorage.removeItem(FIGMA_TOKEN_STORAGE);
-    saveStatus.textContent = 'Saved.';
-  } catch (err) {
-    saveStatus.textContent = 'Could not save (browser storage unavailable).';
-  }
-  setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+newKeyCancel.addEventListener('click', () => {
+  newKeyName.value = '';
+  newKeyValue.value = '';
+  addKeyForm.classList.remove('open');
 });
 
-clearBtn.addEventListener('click', () => {
-  try {
-    localStorage.removeItem(GROQ_KEY_STORAGE);
-    localStorage.removeItem(FIGMA_TOKEN_STORAGE);
-  } catch (err) {
-    // nothing to clear
+newKeySave.addEventListener('click', () => {
+  const name = newKeyName.value.trim();
+  const value = newKeyValue.value.trim();
+  if (!name || !value) {
+    saveStatus.textContent = 'Enter both a name and a value.';
+    setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+    return;
   }
-  groqKeyInput.value = '';
-  figmaTokenInput.value = '';
-  saveStatus.textContent = 'Cleared.';
+  const id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  keys.push({ id, name, value });
+  if (!activeId) activeId = id; // first key added becomes active automatically
+  persist();
+  render();
+  newKeyName.value = '';
+  newKeyValue.value = '';
+  addKeyForm.classList.remove('open');
+  saveStatus.textContent = 'Saved.';
   setTimeout(() => { saveStatus.textContent = ''; }, 2500);
 });
 
@@ -328,6 +405,9 @@ figmaInfoClose.addEventListener('click', () => figmaInfoModal.classList.remove('
 figmaInfoModal.addEventListener('click', (e) => {
   if (e.target === figmaInfoModal) figmaInfoModal.classList.remove('open');
 });
+
+load();
+render();
 </script>
 </body>
 </html>

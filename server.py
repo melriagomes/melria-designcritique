@@ -53,20 +53,13 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES + 1024 * 1024  # small margi
 app.logger.setLevel(logging.INFO)
 
 
-def get_api_key(override=None):
-    """Return the Groq API key to use for this request.
-
-    `override` is a key a visitor entered on the Settings page (sent with the
-    request, never stored server-side). When present it takes priority over
-    the shared server-side .env value, so each visitor can use their own key
-    on a shared deployment; the .env value remains the default for anyone who
-    hasn't set one.
-    """
-    api_key = override or os.environ.get("GROQ_API_KEY")
+def get_api_key():
+    """Return the app's own Groq API key. This runs the critique model itself,
+    so it's the app's infrastructure credential — not something visitors supply."""
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "No Groq API key available. Add one in Settings, or set GROQ_API_KEY in the .env file "
-            "and restart the server."
+            "GROQ_API_KEY is not set. Add it to the .env file in the project root and restart the server."
         )
     return api_key
 
@@ -74,8 +67,10 @@ def get_api_key(override=None):
 def get_figma_token(override=None):
     """Return the Figma personal access token to use for this request.
 
-    Same override behavior as `get_api_key`: a visitor's own token (from
-    Settings) takes priority over the shared server-side .env value.
+    `override` is the visitor's currently-active Settings key (sent with the
+    request, never stored server-side), used when the pasted URL is a Figma
+    link. It takes priority over the shared server-side .env value, which
+    remains the default for anyone who hasn't set one.
     """
     token = override or os.environ.get("FIGMA_API_TOKEN")
     if not token:
@@ -197,22 +192,38 @@ def figma_error_detail(resp):
     return body.get("message") or body.get("err")
 
 
-def classify_figma_error(status_code, detail=None):
+def classify_figma_error(status_code, detail=None, used_own_token=False):
     """Map a Figma REST API status code to (log_label, user_facing_message).
 
     Never includes the token. `detail` is Figma's own response message (safe —
     it describes scopes/permissions, not credentials) and is appended when present.
+
+    `used_own_token` distinguishes a visitor's own Settings key from this
+    app's shared fallback token — the actionable advice for a 403 is
+    different for each, since a Figma token (personal or shared) can only
+    ever see files its owning account has access to.
     """
     if status_code == 401:
         label = "auth"
         msg = "Figma rejected the token as invalid, revoked, or malformed (HTTP 401)."
     elif status_code == 403:
         label = "permission"
-        msg = (
-            "Figma authenticated the token but denied access (HTTP 403). Likely causes: the token's "
-            "owning account doesn't have access to this file, the token is scoped to a specific set of "
-            "files/projects that doesn't include this one, or the token lacks the file_content:read scope."
-        )
+        if used_own_token:
+            msg = (
+                "Figma denied access with your token (HTTP 403). If Figma's message below says "
+                "\"Invalid token\", re-check that you copied the whole token with no missing or extra "
+                "characters — re-paste it in Settings if unsure. Otherwise, check that the token has the "
+                "\"File content\" read-only scope, and — if you created it through Figma's current token "
+                "screen — that this file (or its project) was explicitly added to the token's file access "
+                "list, since scoped tokens only see files you've granted them."
+            )
+        else:
+            msg = (
+                "This app's shared Figma token can't access this file (HTTP 403) — expected for any file "
+                "it doesn't own, since a Figma token only sees what its owning account can see. To "
+                "critique your own Figma file, open Settings, add your own Figma personal access token "
+                "(tap the ⓘ next to \"Your API keys\" for how), mark it active, then paste the link again."
+            )
     elif status_code == 404:
         label = "not_found"
         msg = "Figma couldn't find that file (HTTP 404) — double-check the file key in the URL."
@@ -231,11 +242,11 @@ def classify_figma_error(status_code, detail=None):
     return label, msg
 
 
-def log_figma_error(context, resp):
+def log_figma_error(context, resp, used_own_token=False):
     """Log a Figma API failure server-side with full (non-secret) detail, and
     return the safe, classified message to show the user."""
     detail = figma_error_detail(resp)
-    label, user_msg = classify_figma_error(resp.status_code, detail)
+    label, user_msg = classify_figma_error(resp.status_code, detail, used_own_token=used_own_token)
     app.logger.warning(
         "figma api error: context=%s status=%s label=%s endpoint=%s detail=%s",
         context, resp.status_code, label, resp.url, detail,
@@ -323,6 +334,7 @@ def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
     except RuntimeError as exc:
         return None, None, str(exc)
 
+    used_own_token = bool(figma_token_override)
     headers = {"X-Figma-Token": token}
 
     if not node_id:
@@ -336,7 +348,7 @@ def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
         except requests.exceptions.RequestException as exc:
             return None, None, f"Could not reach the Figma API: {exc}"
         if file_resp.status_code >= 400:
-            return None, None, log_figma_error(f"files/{file_key}", file_resp)
+            return None, None, log_figma_error(f"files/{file_key}", file_resp, used_own_token=used_own_token)
         pages = file_resp.json().get("document", {}).get("children", [])
         if not pages:
             return None, None, "That Figma file has no pages to render."
@@ -353,7 +365,7 @@ def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
         return None, None, f"Could not reach the Figma API: {exc}"
 
     if image_resp.status_code >= 400:
-        return None, None, log_figma_error(f"images/{file_key}", image_resp)
+        return None, None, log_figma_error(f"images/{file_key}", image_resp, used_own_token=used_own_token)
 
     payload = image_resp.json()
     if payload.get("err"):
@@ -376,20 +388,35 @@ def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
     return png_resp.content, "image/png", None
 
 
-def resolve_url_to_image(url, figma_token_override=None):
+def resolve_url_to_image(url, access_token_override=None):
+    """Resolve any pasted URL to an image, using `access_token_override` (the
+    visitor's currently-active Settings key) to authenticate the fetch when
+    the target needs it.
+
+    A figma.com link uses that key exactly as before — sent as the
+    `X-Figma-Token` header to Figma's REST API. Any other URL sends it as a
+    standard `Authorization: Bearer <token>` header on the direct fetch and
+    the page render, so a visitor's own protected site (or any API requiring
+    bearer-token auth) works the same way a public one does. When no key is
+    set, requests go out unauthenticated exactly as before.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return None, None, "That doesn't look like a valid http(s) URL."
 
     figma_target = parse_figma_url(parsed)
     if figma_target:
-        return resolve_figma_url_to_image(*figma_target, figma_token_override=figma_token_override)
+        return resolve_figma_url_to_image(*figma_target, figma_token_override=access_token_override)
+
+    headers = {"User-Agent": "Mozilla/5.0 (design-critique-agent)"}
+    if access_token_override:
+        headers["Authorization"] = f"Bearer {access_token_override}"
 
     try:
         resp = requests.get(
             url,
             timeout=10,
-            headers={"User-Agent": "Mozilla/5.0 (design-critique-agent)"},
+            headers=headers,
             stream=True,
         )
     except requests.exceptions.Timeout:
@@ -416,6 +443,8 @@ def resolve_url_to_image(url, figma_token_override=None):
             browser = pw.chromium.launch()
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
+                if access_token_override:
+                    page.set_extra_http_headers({"Authorization": f"Bearer {access_token_override}"})
                 page.goto(url, wait_until="load", timeout=PAGE_LOAD_TIMEOUT_MS)
                 screenshot = page.screenshot(full_page=True, type="png")
             finally:
@@ -443,11 +472,11 @@ def critique():
     image_file = request.files.get("image")
     url = (request.form.get("url") or "").strip()
     note = (request.form.get("note") or "").strip()
-    # Per-visitor keys from the Settings page (browser localStorage), sent
-    # with this request only and never written to disk server-side. Empty
-    # string means "not set" — falls back to the shared .env value.
-    groq_key_override = (request.form.get("groq_api_key") or "").strip() or None
-    figma_token_override = (request.form.get("figma_api_token") or "").strip() or None
+    # The visitor's currently-active key from the Settings page (browser
+    # localStorage), sent with this request only and never written to disk
+    # server-side. Empty means "not set" — Figma URLs then fall back to the
+    # shared .env token, and other URLs are fetched unauthenticated.
+    access_token_override = (request.form.get("access_token") or "").strip() or None
 
     has_image = image_file is not None and image_file.filename
     has_url = bool(url)
@@ -460,7 +489,7 @@ def critique():
     if has_image:
         image_bytes, mime, err = resolve_uploaded_image(image_file)
     else:
-        image_bytes, mime, err = resolve_url_to_image(url, figma_token_override=figma_token_override)
+        image_bytes, mime, err = resolve_url_to_image(url, access_token_override=access_token_override)
 
     if err:
         return error_response(err)
@@ -468,7 +497,7 @@ def critique():
     user_text = "Critique this design." if not note else f"Critique this design. Note from the user: {note}"
 
     try:
-        api_key = get_api_key(groq_key_override)
+        api_key = get_api_key()
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
 
