@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Design Critique Agent</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #e2e4e9;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 760px;
+    min-height: 100vh;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  #backBtn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    font-size: 20px;
+    color: var(--muted);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  #backBtn:hover { background: var(--bg); color: var(--text); }
+  header h1 { font-size: 16px; margin: 0; }
+  header p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+
+  main {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .field-label-row label { font-size: 14px; font-weight: 600; }
+
+  .info-btn {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .info-btn:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+  }
+  .input-row input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .toggle-visibility {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text);
+  }
+
+  .field-hint { font-size: 12px; color: var(--muted); margin: 0; }
+  .field-hint a { color: var(--accent); }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  #saveBtn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #clearBtn {
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: underline;
+  }
+  #saveStatus {
+    font-size: 13px;
+    color: #1a7f37;
+  }
+
+  .note-box {
+    font-size: 12.5px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    line-height: 1.5;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border-radius: 12px;
+    max-width: 440px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 20px;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 12px; }
+  .modal ol { margin: 0 0 14px; padding-left: 20px; }
+  .modal li { margin-bottom: 8px; font-size: 13.5px; line-height: 1.5; }
+  .modal p { font-size: 13.5px; line-height: 1.5; margin: 0 0 10px; }
+  .modal strong { color: var(--accent); }
+  .modal-close-row { display: flex; justify-content: flex-end; }
+  .modal-close-row button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <button id="backBtn" type="button" title="Back" aria-label="Back to chat">←</button>
+    <div>
+      <h1>Settings</h1>
+      <p>Use your own keys instead of the app's shared defaults.</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="note-box">
+      These are saved only in this browser (never sent anywhere except to this app's own server
+      when you send a critique). Leave a field blank to keep using the app's default key, if one
+      is configured.
+    </div>
+
+    <div class="field-group">
+      <div class="field-label-row">
+        <label for="groqKeyInput">Groq API Key</label>
+      </div>
+      <div class="input-row">
+        <input type="password" id="groqKeyInput" placeholder="gsk_..." autocomplete="off">
+        <button type="button" class="toggle-visibility" data-target="groqKeyInput">Show</button>
+      </div>
+      <p class="field-hint">
+        Powers the AI critique itself. Get a free key from
+        <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>.
+      </p>
+    </div>
+
+    <div class="field-group">
+      <div class="field-label-row">
+        <label for="figmaTokenInput">Figma API Token</label>
+        <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma token" aria-label="How to get a Figma token">i</button>
+      </div>
+      <div class="input-row">
+        <input type="password" id="figmaTokenInput" placeholder="figd_..." autocomplete="off">
+        <button type="button" class="toggle-visibility" data-target="figmaTokenInput">Show</button>
+      </div>
+      <p class="field-hint">Needed only if you paste Figma file/design links for critique.</p>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn" type="button">Save</button>
+      <button id="clearBtn" type="button">Clear saved keys</button>
+      <span id="saveStatus"></span>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="figmaInfoModal">
+  <div class="modal">
+    <h2>Getting a Figma personal access token</h2>
+    <ol>
+      <li>Log into Figma in your browser, then click your account icon (top-left) and open <strong>Settings</strong>.</li>
+      <li>Go to the <strong>Security</strong> tab and scroll to <strong>Personal access tokens</strong>.</li>
+      <li>Click <strong>Generate new token</strong>, give it a name (e.g. "Design Critique Agent"), and set an expiry.</li>
+      <li>Under scopes, select at minimum <strong>File content — Read only</strong>. This is what lets the token fetch a file's design so it can be rendered as an image for critique.</li>
+      <li><em>Optional:</em> <strong>Current user — Read only</strong> is not required for critiques; it's only used by this app's diagnostics to confirm which account a token belongs to.</li>
+      <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Paste it into the field on this page and click Save.</li>
+    </ol>
+    <p>Treat this token like a password — anyone with it can read any Figma file it has access to.</p>
+    <div class="modal-close-row">
+      <button id="figmaInfoClose" type="button">Got it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const GROQ_KEY_STORAGE = 'designCritiqueGroqApiKey';
+const FIGMA_TOKEN_STORAGE = 'designCritiqueFigmaApiToken';
+
+const backBtn = document.getElementById('backBtn');
+const groqKeyInput = document.getElementById('groqKeyInput');
+const figmaTokenInput = document.getElementById('figmaTokenInput');
+const saveBtn = document.getElementById('saveBtn');
+const clearBtn = document.getElementById('clearBtn');
+const saveStatus = document.getElementById('saveStatus');
+const figmaInfoBtn = document.getElementById('figmaInfoBtn');
+const figmaInfoModal = document.getElementById('figmaInfoModal');
+const figmaInfoClose = document.getElementById('figmaInfoClose');
+
+backBtn.addEventListener('click', () => {
+  window.location.href = '/';
+});
+
+try {
+  groqKeyInput.value = localStorage.getItem(GROQ_KEY_STORAGE) || '';
+  figmaTokenInput.value = localStorage.getItem(FIGMA_TOKEN_STORAGE) || '';
+} catch (err) {
+  // localStorage unavailable (e.g. private browsing) — fields just start empty.
+}
+
+document.querySelectorAll('.toggle-visibility').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const target = document.getElementById(btn.dataset.target);
+    const showing = target.type === 'text';
+    target.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Show' : 'Hide';
+  });
+});
+
+saveBtn.addEventListener('click', () => {
+  try {
+    const groqKey = groqKeyInput.value.trim();
+    const figmaToken = figmaTokenInput.value.trim();
+    if (groqKey) localStorage.setItem(GROQ_KEY_STORAGE, groqKey); else localStorage.removeItem(GROQ_KEY_STORAGE);
+    if (figmaToken) localStorage.setItem(FIGMA_TOKEN_STORAGE, figmaToken); else localStorage.removeItem(FIGMA_TOKEN_STORAGE);
+    saveStatus.textContent = 'Saved.';
+  } catch (err) {
+    saveStatus.textContent = 'Could not save (browser storage unavailable).';
+  }
+  setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+});
+
+clearBtn.addEventListener('click', () => {
+  try {
+    localStorage.removeItem(GROQ_KEY_STORAGE);
+    localStorage.removeItem(FIGMA_TOKEN_STORAGE);
+  } catch (err) {
+    // nothing to clear
+  }
+  groqKeyInput.value = '';
+  figmaTokenInput.value = '';
+  saveStatus.textContent = 'Cleared.';
+  setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+});
+
+figmaInfoBtn.addEventListener('click', () => figmaInfoModal.classList.add('open'));
+figmaInfoClose.addEventListener('click', () => figmaInfoModal.classList.remove('open'));
+figmaInfoModal.addEventListener('click', (e) => {
+  if (e.target === figmaInfoModal) figmaInfoModal.classList.remove('open');
+});
+</script>
+</body>
+</html>
