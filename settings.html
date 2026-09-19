@@ -96,6 +96,36 @@
   }
   .info-btn:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .name-row input { flex: 1; }
+  .warn-btn {
+    display: none;
+    border: 1px solid #f5a623;
+    background: #fff4e5;
+    color: #b45309;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex-shrink: 0;
+    animation: warn-pulse 1.6s ease-in-out infinite;
+  }
+  .warn-btn.show { display: inline-flex; }
+  .warn-btn:hover { background: #f5a623; color: white; }
+  @keyframes warn-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.5); }
+    50% { box-shadow: 0 0 0 5px rgba(245, 166, 35, 0); }
+  }
+
   #keyList {
     display: flex;
     flex-direction: column;
@@ -231,7 +261,6 @@
 
     <div class="section-head">
       <h2>Your API keys</h2>
-      <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma token" aria-label="How to get a Figma token">i</button>
     </div>
 
     <div id="keyList"></div>
@@ -240,7 +269,10 @@
     <button type="button" id="addKeyToggle">+ Add a key</button>
 
     <div id="addKeyForm">
-      <input type="text" id="newKeyName" placeholder="Name (e.g. Figma, My website API)">
+      <div class="name-row">
+        <input type="text" id="newKeyName" placeholder="Name (e.g. Figma, My website API)">
+        <button type="button" class="warn-btn" id="figmaInfoBtn" title="Required permissions for a Figma token" aria-label="Required permissions for a Figma token">⚠️</button>
+      </div>
       <input type="password" id="newKeyValue" placeholder="Key or token value" autocomplete="off">
       <div class="add-key-actions">
         <button type="button" class="btn-primary" id="newKeySave">Save key</button>
@@ -259,7 +291,8 @@
       <li>Log into Figma in your browser, then click your account icon (top-left) and open <strong>Settings</strong>.</li>
       <li>Go to the <strong>Security</strong> tab and scroll to <strong>Personal access tokens</strong>.</li>
       <li>Click <strong>Generate new token</strong>, give it a name (e.g. "Design Critique Agent"), and set an expiry.</li>
-      <li>Under scopes, select at minimum <strong>File content — Read only</strong>. This is what lets the token fetch a file's design so it can be rendered as an image for critique.</li>
+      <li>Under scopes, turn on <strong>every permission that lets the token read files</strong> — at minimum <strong>File content: Read</strong>, and also <strong>File metadata: Read</strong>, <strong>Library content: Read</strong>, and <strong>Library assets: Read</strong> if Figma shows them. These let the token fetch the file's design so it can be rendered as an image.</li>
+      <li>Also turn on <strong>every Dev permission</strong> in the list (e.g. <strong>Dev resources: Read</strong>, <strong>Code Connect: Read</strong>) — Figma can require these to fully retrieve a file's contents through the API, even for a plain design file.</li>
       <li><em>Optional:</em> <strong>Current user — Read only</strong> is not required for critiques; it's only used by this app's diagnostics to confirm which account a token belongs to.</li>
       <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Add it below as a new key (name it something like "Figma") and mark it active.</li>
     </ol>
@@ -369,6 +402,11 @@ backBtn.addEventListener('click', () => {
   window.location.href = '/';
 });
 
+function updateFigmaWarnVisibility() {
+  figmaInfoBtn.classList.toggle('show', newKeyName.value.toLowerCase().includes('figma'));
+}
+newKeyName.addEventListener('input', updateFigmaWarnVisibility);
+
 addKeyToggle.addEventListener('click', () => {
   addKeyForm.classList.add('open');
   newKeyName.focus();
@@ -377,6 +415,7 @@ addKeyToggle.addEventListener('click', () => {
 newKeyCancel.addEventListener('click', () => {
   newKeyName.value = '';
   newKeyValue.value = '';
+  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
 });
 
@@ -395,6 +434,7 @@ newKeySave.addEventListener('click', () => {
   render();
   newKeyName.value = '';
   newKeyValue.value = '';
+  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
   saveStatus.textContent = 'Saved.';
   setTimeout(() => { saveStatus.textContent = ''; }, 2500);
