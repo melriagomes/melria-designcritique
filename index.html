@@ -42,9 +42,25 @@
   header {
     padding: 16px 20px;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
   }
   header h1 { font-size: 16px; margin: 0; }
   header p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  #settingsBtn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    font-size: 20px;
+    color: var(--muted);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  #settingsBtn:hover { background: var(--bg); color: var(--text); }
 
   #messages {
     flex: 1;
@@ -189,8 +205,11 @@
 <body>
 <div class="app">
   <header>
-    <h1>Design Critique Agent</h1>
-    <p>Send an image or a URL — get back a structured critique with concrete fixes.</p>
+    <div>
+      <h1>Design Critique Agent</h1>
+      <p>Send an image or a URL — get back a structured critique with concrete fixes.</p>
+    </div>
+    <button id="settingsBtn" type="button" title="Settings" aria-label="Settings">⚙️</button>
   </header>
 
   <div id="messages"></div>
@@ -242,6 +261,14 @@ const urlInput = document.getElementById('urlInput');
 const noteInput = document.getElementById('noteInput');
 const sendBtn = document.getElementById('sendBtn');
 const hint = document.getElementById('hint');
+const settingsBtn = document.getElementById('settingsBtn');
+
+const GROQ_KEY_STORAGE = 'designCritiqueGroqApiKey';
+const FIGMA_TOKEN_STORAGE = 'designCritiqueFigmaApiToken';
+
+settingsBtn.addEventListener('click', () => {
+  window.location.href = '/settings';
+});
 
 let mode = 'image';
 let selectedFile = null;
@@ -407,6 +434,19 @@ sendBtn.addEventListener('click', async () => {
     addUserMessage({ url, note });
   }
   if (note) formData.append('note', note);
+
+  // Attach this visitor's own keys from Settings, if they saved any — the
+  // server uses these for this request only and falls back to its shared
+  // defaults when they're absent, so behavior is unchanged for anyone who
+  // hasn't set personal keys.
+  try {
+    const groqKey = localStorage.getItem(GROQ_KEY_STORAGE);
+    const figmaToken = localStorage.getItem(FIGMA_TOKEN_STORAGE);
+    if (groqKey) formData.append('groq_api_key', groqKey);
+    if (figmaToken) formData.append('figma_api_token', figmaToken);
+  } catch (err) {
+    // localStorage unavailable (e.g. private browsing) — just use server defaults.
+  }
 
   // Reset composer for the next turn.
   const usedFile = selectedFile;

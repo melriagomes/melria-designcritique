@@ -53,21 +53,35 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES + 1024 * 1024  # small margi
 app.logger.setLevel(logging.INFO)
 
 
-def get_api_key():
-    api_key = os.environ.get("GROQ_API_KEY")
+def get_api_key(override=None):
+    """Return the Groq API key to use for this request.
+
+    `override` is a key a visitor entered on the Settings page (sent with the
+    request, never stored server-side). When present it takes priority over
+    the shared server-side .env value, so each visitor can use their own key
+    on a shared deployment; the .env value remains the default for anyone who
+    hasn't set one.
+    """
+    api_key = override or os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GROQ_API_KEY is not set. Add it to the .env file in the project root and restart the server."
+            "No Groq API key available. Add one in Settings, or set GROQ_API_KEY in the .env file "
+            "and restart the server."
         )
     return api_key
 
 
-def get_figma_token():
-    token = os.environ.get("FIGMA_API_TOKEN")
+def get_figma_token(override=None):
+    """Return the Figma personal access token to use for this request.
+
+    Same override behavior as `get_api_key`: a visitor's own token (from
+    Settings) takes priority over the shared server-side .env value.
+    """
+    token = override or os.environ.get("FIGMA_API_TOKEN")
     if not token:
         raise RuntimeError(
-            "FIGMA_API_TOKEN is not set. Add a Figma personal access token to the .env file "
-            "(Figma account settings → Personal access tokens) to critique Figma links, then restart the server."
+            "No Figma API token available. Add one in Settings (Figma account settings → Personal "
+            "access tokens), or set FIGMA_API_TOKEN in the .env file and restart the server."
         )
     return token
 
@@ -303,9 +317,9 @@ def parse_figma_url(parsed):
     return file_key, node_id
 
 
-def resolve_figma_url_to_image(file_key, node_id):
+def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
     try:
-        token = get_figma_token()
+        token = get_figma_token(figma_token_override)
     except RuntimeError as exc:
         return None, None, str(exc)
 
@@ -362,14 +376,14 @@ def resolve_figma_url_to_image(file_key, node_id):
     return png_resp.content, "image/png", None
 
 
-def resolve_url_to_image(url):
+def resolve_url_to_image(url, figma_token_override=None):
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return None, None, "That doesn't look like a valid http(s) URL."
 
     figma_target = parse_figma_url(parsed)
     if figma_target:
-        return resolve_figma_url_to_image(*figma_target)
+        return resolve_figma_url_to_image(*figma_target, figma_token_override=figma_token_override)
 
     try:
         resp = requests.get(
@@ -419,11 +433,21 @@ def index():
     return send_from_directory(BASE_DIR, "index.html")
 
 
+@app.route("/settings")
+def settings_page():
+    return send_from_directory(BASE_DIR, "settings.html")
+
+
 @app.route("/api/critique", methods=["POST"])
 def critique():
     image_file = request.files.get("image")
     url = (request.form.get("url") or "").strip()
     note = (request.form.get("note") or "").strip()
+    # Per-visitor keys from the Settings page (browser localStorage), sent
+    # with this request only and never written to disk server-side. Empty
+    # string means "not set" — falls back to the shared .env value.
+    groq_key_override = (request.form.get("groq_api_key") or "").strip() or None
+    figma_token_override = (request.form.get("figma_api_token") or "").strip() or None
 
     has_image = image_file is not None and image_file.filename
     has_url = bool(url)
@@ -436,7 +460,7 @@ def critique():
     if has_image:
         image_bytes, mime, err = resolve_uploaded_image(image_file)
     else:
-        image_bytes, mime, err = resolve_url_to_image(url)
+        image_bytes, mime, err = resolve_url_to_image(url, figma_token_override=figma_token_override)
 
     if err:
         return error_response(err)
@@ -444,7 +468,7 @@ def critique():
     user_text = "Critique this design." if not note else f"Critique this design. Note from the user: {note}"
 
     try:
-        api_key = get_api_key()
+        api_key = get_api_key(groq_key_override)
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
 
