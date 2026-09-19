@@ -22,7 +22,14 @@
  * This is a TypeScript/Node port of annotate_callouts.py, using
  * `@napi-rs/canvas` (prebuilt native binding, no compiler/GTK required)
  * as the Pillow equivalent. Behavior mirrors the Python version so either
- * can be used interchangeably by the skill.
+ * can be used interchangeably.
+ *
+ * This script is the shared drawing primitive behind the `screenshot-annotator`
+ * skill. It knows nothing about UX heuristics or where problems come from —
+ * it just draws whatever numbered regions it's handed. Any skill that has
+ * already decided *what's* wrong and *where* (e.g. `ux-critic`) invokes the
+ * screenshot-annotator skill rather than calling this script directly, so the
+ * drawing logic lives in exactly one place.
  */
 import * as fs from "fs";
 import * as path from "path";

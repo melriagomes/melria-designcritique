@@ -1,8 +1,8 @@
 {
-  "name": "ux-critic-scripts",
+  "name": "screenshot-annotator-scripts",
   "version": "1.0.0",
   "private": true,
-  "description": "TypeScript port of annotate_callouts.py for the ux-critic skill.",
+  "description": "Draws numbered callout markers on a screenshot/image. Shared primitive used by the screenshot-annotator skill (and, via it, ux-critic).",
   "scripts": {
     "build": "tsc -p .",
     "annotate": "ts-node annotate_callouts.ts"

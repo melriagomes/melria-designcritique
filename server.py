@@ -7,15 +7,19 @@ no database, no auth, no session memory — one request in, one critique
 out, per plan.md's MVP scope.
 """
 import base64
+import io
+import logging
 import mimetypes
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
+from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -28,13 +32,25 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 PAGE_LOAD_TIMEOUT_MS = 15_000
+GROQ_MAX_IMAGE_PIXELS = 33_177_600  # Groq vision models reject anything larger than this
 
+# --- Figma REST API integration -------------------------------------------
+#
+# This talks to Figma's REST API directly over HTTPS using a Personal Access
+# Token (FIGMA_API_TOKEN, sent as the `X-Figma-Token` header). This is a
+# completely separate credential and code path from any Figma MCP server an
+# AI coding agent (e.g. inside an editor) might use during development — the
+# two are never wired together, and this token is never shared with or read
+# by an MCP client. The token only ever lives server-side: it is read from
+# the environment in this file and never sent to, or embedded in, anything
+# served to the browser (index.html makes no Figma calls of its own).
 FIGMA_API_BASE = "https://api.figma.com/v1"
 FIGMA_HOSTS = {"figma.com", "www.figma.com"}
-FIGMA_PATH_RE = re.compile(r"^/(file|design|proto|board)/([a-zA-Z0-9]+)")
+FIGMA_PATH_RE = re.compile(r"^/(file|design|proto|board)/([a-zA-Z0-9_-]+)")
 
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
+app.logger.setLevel(logging.INFO)
 
 
 def get_api_key():
@@ -99,6 +115,39 @@ def looks_like_image_extension(filename):
     return ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
+def downscale_for_groq(image_bytes, mime):
+    """Shrink an image to fit Groq's max-pixel limit for vision models.
+
+    Applies regardless of where the image came from (upload, direct image URL,
+    Figma render, or webpage screenshot) — any of those can exceed the limit,
+    most commonly a full-page screenshot of a tall webpage or a Figma render
+    at 2x scale. Returns (possibly-unchanged) image_bytes and mime.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            pixels = img.width * img.height
+            if pixels <= GROQ_MAX_IMAGE_PIXELS:
+                return image_bytes, mime
+
+            # A small safety margin below the exact limit avoids rounding the
+            # resized dimensions back up to the boundary.
+            scale = (GROQ_MAX_IMAGE_PIXELS / pixels) ** 0.5 * 0.99
+            new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            resized = img.convert("RGB") if img.mode in ("P", "CMYK") else img
+            resized = resized.resize(new_size, Image.LANCZOS)
+
+            buf = io.BytesIO()
+            resized.save(buf, format="PNG")
+            app.logger.info(
+                "downscaled oversized image for groq: %sx%s (%s px) -> %sx%s (%s px)",
+                img.width, img.height, pixels, new_size[0], new_size[1], new_size[0] * new_size[1],
+            )
+            return buf.getvalue(), "image/png"
+    except Exception as exc:  # noqa: BLE001 - image parsing can fail in many ways; fall back safely
+        app.logger.warning("could not inspect/downscale image (%s) — sending as-is", exc)
+        return image_bytes, mime
+
+
 def resolve_uploaded_image(file_storage):
     mime = file_storage.mimetype
     if mime not in ALLOWED_IMAGE_MIME and not looks_like_image_extension(file_storage.filename):
@@ -115,6 +164,123 @@ def resolve_uploaded_image(file_storage):
         mime = guessed or "image/png"
 
     return data, mime, None
+
+
+def redact_token(token):
+    """Never log or return the actual token — only a shape hint safe to show."""
+    if not token:
+        return None
+    prefix = "figd_" if token.startswith("figd_") else token[:4] + "…" if len(token) > 4 else "…"
+    return f"{prefix}(redacted, {len(token)} chars)"
+
+
+def figma_error_detail(resp):
+    """Pull Figma's own (non-secret) error message out of a response, if present."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    return body.get("message") or body.get("err")
+
+
+def classify_figma_error(status_code, detail=None):
+    """Map a Figma REST API status code to (log_label, user_facing_message).
+
+    Never includes the token. `detail` is Figma's own response message (safe —
+    it describes scopes/permissions, not credentials) and is appended when present.
+    """
+    if status_code == 401:
+        label = "auth"
+        msg = "Figma rejected the token as invalid, revoked, or malformed (HTTP 401)."
+    elif status_code == 403:
+        label = "permission"
+        msg = (
+            "Figma authenticated the token but denied access (HTTP 403). Likely causes: the token's "
+            "owning account doesn't have access to this file, the token is scoped to a specific set of "
+            "files/projects that doesn't include this one, or the token lacks the file_content:read scope."
+        )
+    elif status_code == 404:
+        label = "not_found"
+        msg = "Figma couldn't find that file (HTTP 404) — double-check the file key in the URL."
+    elif status_code == 429:
+        label = "rate_limit"
+        msg = "Figma rate-limited this request (HTTP 429) — wait a moment and try again."
+    elif status_code >= 500:
+        label = "figma_outage"
+        msg = f"Figma's API returned a server error (HTTP {status_code}) — try again shortly."
+    else:
+        label = "unknown"
+        msg = f"Figma API returned HTTP {status_code}."
+
+    if detail:
+        msg = f"{msg} Figma says: {detail}"
+    return label, msg
+
+
+def log_figma_error(context, resp):
+    """Log a Figma API failure server-side with full (non-secret) detail, and
+    return the safe, classified message to show the user."""
+    detail = figma_error_detail(resp)
+    label, user_msg = classify_figma_error(resp.status_code, detail)
+    app.logger.warning(
+        "figma api error: context=%s status=%s label=%s endpoint=%s detail=%s",
+        context, resp.status_code, label, resp.url, detail,
+    )
+    return user_msg
+
+
+def figma_diagnostics(file_key=None):
+    """Safe, read-only diagnostic for the Figma REST integration.
+
+    Checks (1) whether FIGMA_API_TOKEN is set, (2) which Figma account it
+    authenticates as (if the token's scopes allow that lookup), and (3)
+    whether a specific file_key is accessible with it. Never includes the
+    token itself — only a redacted shape hint. Intended for server-side
+    debugging (logs, or the `--figma-diagnose` CLI below), never returned
+    to a browser client.
+    """
+    token = os.environ.get("FIGMA_API_TOKEN")
+    result = {
+        "token_present": bool(token),
+        "token_redacted": redact_token(token),
+        "authenticated_account": None,
+        "file_access": None,
+    }
+    if not token:
+        return result
+
+    headers = {"X-Figma-Token": token}
+
+    try:
+        me_resp = requests.get(f"{FIGMA_API_BASE}/me", headers=headers, timeout=10)
+    except requests.exceptions.RequestException as exc:
+        result["authenticated_account"] = f"unavailable ({exc.__class__.__name__})"
+    else:
+        if me_resp.status_code == 200:
+            me = me_resp.json()
+            result["authenticated_account"] = {"email": me.get("email"), "handle": me.get("handle")}
+        else:
+            label, _ = classify_figma_error(me_resp.status_code, figma_error_detail(me_resp))
+            result["authenticated_account"] = (
+                f"unavailable (HTTP {me_resp.status_code}, {label} — this token may not carry the "
+                "current_user:read scope, which is unrelated to file-reading access)"
+            )
+
+    if file_key:
+        try:
+            file_resp = requests.get(
+                f"{FIGMA_API_BASE}/files/{file_key}", headers=headers, params={"depth": 1}, timeout=10
+            )
+        except requests.exceptions.RequestException as exc:
+            result["file_access"] = f"unavailable ({exc.__class__.__name__})"
+        else:
+            if file_resp.status_code == 200:
+                result["file_access"] = "ok"
+            else:
+                label, _ = classify_figma_error(file_resp.status_code, figma_error_detail(file_resp))
+                result["file_access"] = f"denied (HTTP {file_resp.status_code}, {label})"
+
+    return result
 
 
 def parse_figma_url(parsed):
@@ -156,10 +322,7 @@ def resolve_figma_url_to_image(file_key, node_id):
         except requests.exceptions.RequestException as exc:
             return None, None, f"Could not reach the Figma API: {exc}"
         if file_resp.status_code >= 400:
-            return None, None, (
-                f"Figma API returned HTTP {file_resp.status_code} fetching that file. "
-                "Check the link and that your token has access to it."
-            )
+            return None, None, log_figma_error(f"files/{file_key}", file_resp)
         pages = file_resp.json().get("document", {}).get("children", [])
         if not pages:
             return None, None, "That Figma file has no pages to render."
@@ -176,10 +339,7 @@ def resolve_figma_url_to_image(file_key, node_id):
         return None, None, f"Could not reach the Figma API: {exc}"
 
     if image_resp.status_code >= 400:
-        return None, None, (
-            f"Figma API returned HTTP {image_resp.status_code} rendering that link. "
-            "Check the link and that your token has access to it."
-        )
+        return None, None, log_figma_error(f"images/{file_key}", image_resp)
 
     payload = image_resp.json()
     if payload.get("err"):
@@ -288,6 +448,8 @@ def critique():
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
 
+    image_bytes, mime = downscale_for_groq(image_bytes, mime)
+
     data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
     try:
         resp = requests.post(
@@ -295,7 +457,7 @@ def critique():
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
                 "model": GROQ_MODEL,
-                "max_tokens": 1500,
+                "max_completion_tokens": 800,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {
@@ -328,5 +490,38 @@ def too_large(_exc):
     return error_response("That upload is larger than the 10MB limit.", status=413)
 
 
+def _run_figma_diagnose_cli(arg):
+    """`python server.py --figma-diagnose [<figma-url-or-file-key>]`
+
+    Standalone, read-only check of the Figma REST integration — does not
+    start the Flask server. Prints token presence, the authenticated
+    account (if the token's scopes allow that lookup), and whether the
+    given file is accessible. Never prints the token itself.
+    """
+    file_key = None
+    if arg:
+        parsed = urlparse(arg)
+        if parsed.scheme in ("http", "https"):
+            target = parse_figma_url(parsed)
+            if not target:
+                print("That doesn't look like a figma.com file/design/proto/board URL.")
+                return
+            file_key, _node_id = target
+        else:
+            file_key = arg.strip()
+
+    diag = figma_diagnostics(file_key)
+    print(f"token present:          {diag['token_present']}")
+    print(f"token (redacted):       {diag['token_redacted']}")
+    print(f"authenticated account:  {diag['authenticated_account']}")
+    if file_key:
+        print(f"file access ({file_key}): {diag['file_access']}")
+    else:
+        print("file access:            (pass a Figma URL or file key as an argument to check)")
+
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    if len(sys.argv) > 1 and sys.argv[1] == "--figma-diagnose":
+        _run_figma_diagnose_cli(sys.argv[2] if len(sys.argv) > 2 else None)
+    else:
+        app.run(host="127.0.0.1", port=5000, debug=True)

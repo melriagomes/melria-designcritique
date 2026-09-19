@@ -17,6 +17,13 @@ because a vision model estimating "where" a problem is on a screenshot is
 far more reliable at judging position as a fraction of the image ("about a
 third of the way down, spanning the left column") than at guessing exact
 pixel numbers. This script does the fraction-to-pixel conversion.
+
+This script is the shared drawing primitive behind the `screenshot-annotator`
+skill. It knows nothing about UX heuristics or where problems come from — it
+just draws whatever numbered regions it's handed. Any skill that has already
+decided *what's* wrong and *where* (e.g. `ux-critic`) invokes the
+screenshot-annotator skill rather than calling this script directly, so the
+drawing logic lives in exactly one place.
 """
 import argparse
 import json

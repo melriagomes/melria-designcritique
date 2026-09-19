@@ -1,0 +1,20 @@
+{
+  "name": "graphic-critic-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dominant-color and WCAG contrast-ratio extraction for the graphic-critic skill. Pure-JS image decoding (pngjs, jpeg-js) — no native compilation.",
+  "scripts": {
+    "build": "tsc -p .",
+    "palette": "ts-node color_palette.ts"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "jpeg-js": "^0.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pngjs": "^6.0.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

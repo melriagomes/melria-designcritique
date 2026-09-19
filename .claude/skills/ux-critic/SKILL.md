@@ -7,15 +7,19 @@ description: Runs a structured UX/UI critique of a screenshot, image, or live we
 
 Produce a screenshot annotated with numbered callout markers, paired with a numbered text list that explains each flagged issue and how to fix it. The image and the list always travel together in the same response — a callout with no matching text entry (or vice versa) defeats the point.
 
+This skill owns the *judgment* — deciding what's wrong against the ten UX heuristics below, and writing the critique/fix text. The actual capture-and-draw-markers mechanics are the `screenshot-annotator` skill's job (Step 4) — don't duplicate that rendering logic here.
+
 ## Why this shape of output works
 
 A written critique without visual anchoring forces the reader to hunt for what "the CTA in the header" even refers to. A screenshot with unlabeled red boxes forces them to guess why a box is there. Numbering both and keeping them 1:1 lets someone glance at the image, find marker `4`, and read exactly what's wrong there and what to do about it — no cross-referencing required.
 
 ## Step 1: Get the image
 
-- **User gives a URL:** capture a screenshot of the live page using the `claude-in-chrome` browser tools (load the `claude-in-chrome` skill first if it isn't already active, then navigate to the URL and take a screenshot). Prefer a full-page or full-viewport capture over a cropped one — cropping before the critique risks cutting off the exact regions worth flagging. Save the screenshot to a file so the annotation script can read it.
+- **User gives a URL:** capture a screenshot of the live page using the `claude-in-chrome` browser tools (load the `claude-in-chrome` skill first if it isn't already active, then navigate to the URL and take a screenshot). Prefer a full-page or full-viewport capture over a cropped one — cropping before the critique risks cutting off the exact regions worth flagging. Save the screenshot to a file.
 - **User attaches or references an image directly:** use it as-is, no browser involved.
 - If neither a working URL nor an image is available, ask for one rather than guessing at a design that hasn't been shown to you.
+
+You need this image in hand before Step 2 — you're about to critique it yourself, which `screenshot-annotator` doesn't do for you.
 
 ## Step 2: Critique pass
 
@@ -38,28 +42,22 @@ For each problem you decide to flag, anchor it to a specific region of the image
 
 ## Step 3: Locate each issue as a fraction of the image
 
-For every flagged issue, estimate a bounding box around the offending element **as a fraction of the image's width and height** — e.g. `[0.05, 0.10, 0.35, 0.16]` for something spanning roughly the left third, starting 10% down and ending 16% down. Judging position as "about a third of the way down, spanning the left column" is something a vision model does reliably; guessing exact pixel coordinates on a resized image is not — that's why the script (Step 4) takes fractions and converts them itself.
+For every flagged issue, estimate a bounding box around the offending element **as a fraction of the image's width and height** — e.g. `[0.05, 0.10, 0.35, 0.16]` for something spanning roughly the left third, starting 10% down and ending 16% down. Judging position as "about a third of the way down, spanning the left column" is something a vision model does reliably; guessing exact pixel coordinates on a resized image is not.
 
-Build a JSON array, one entry per issue, in numbered order:
+Build a JSON array, one entry per issue, in numbered order, with a short description for each:
 
 ```json
 [
-  {"number": 1, "shape": "box", "bbox_fraction": [0.05, 0.10, 0.35, 0.16]},
-  {"number": 2, "shape": "ellipse", "bbox_fraction": [0.42, 0.30, 0.58, 0.38]}
+  {"number": 1, "shape": "box", "bbox_fraction": [0.05, 0.10, 0.35, 0.16], "description": "Body text under the logo matches the nav links' size/weight"},
+  {"number": 2, "shape": "ellipse", "bbox_fraction": [0.42, 0.30, 0.58, 0.38], "description": "..."}
 ]
 ```
 
-Use `"shape": "box"` for anything rectangular (buttons, cards, text blocks, nav bars) and `"ellipse"` only when a circular/blob marker reads more naturally (e.g. a small icon). Default to `"box"` when unsure. Write this array to a JSON file.
+Use `"shape": "box"` for anything rectangular (buttons, cards, text blocks, nav bars) and `"ellipse"` only when a circular/blob marker reads more naturally (e.g. a small icon). Default to `"box"` when unsure.
 
-## Step 4: Render the annotated image
+## Step 4: Render the annotated image via `screenshot-annotator`
 
-Run the bundled script (path is relative to this skill's own directory, wherever it's installed):
-
-```bash
-python <skill_dir>/scripts/annotate_callouts.py <input_image> <annotations.json> <output_image>
-```
-
-This draws the outline for each shape plus a numbered red badge at its top-left corner, and saves the result. Don't hand-roll this drawing logic — the script already handles font fallback, edge-clamping so badges never fall off-canvas, and scaling stroke/badge size to the image's resolution.
+Invoke the `screenshot-annotator` skill, handing it the image from Step 1 and the JSON array from Step 3. It captures/uses the image, draws the numbered outline + badge for each entry (handling font fallback, edge-clamping, and stroke/badge scaling itself), and returns the annotated image. Don't call `annotate_callouts.py`/`.ts` directly from here — that script now lives under `screenshot-annotator`, not this skill, precisely so the drawing logic exists in one place shared by both skills.
 
 ## Step 5: Write the matching text list
 
@@ -82,7 +80,7 @@ This draws the outline for each shape plus a numbered red badge at its top-left 
 
 ## Step 6: Present both together
 
-Show the annotated image and the numbered list in the same response, image first. If the medium doesn't support inline images, at minimum state the output image's path right next to the list so the two are easy to line up.
+Show the annotated image (from Step 4) and the numbered list (from Step 5) in the same response, image first. If the medium doesn't support inline images, at minimum state the output image's path right next to the list so the two are easy to line up.
 
 ## Notes
 

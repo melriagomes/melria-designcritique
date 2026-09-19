@@ -1,0 +1,16 @@
+{
+  "name": "interaction-critic-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nielsen response-time threshold classifier for the interaction-critic skill. Zero runtime dependencies.",
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "ts-node timing_reference_check.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
