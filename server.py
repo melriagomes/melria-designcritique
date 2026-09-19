@@ -521,7 +521,14 @@ def _run_figma_diagnose_cli(arg):
 
 
 if __name__ == "__main__":
+    # Local development entry point only. In production (Railway), Gunicorn
+    # imports this module directly as `server:app` (see Procfile) and never
+    # executes this block, so it has no effect on and cannot conflict with
+    # the production server. Debug mode defaults off here too, so running
+    # `python server.py` without opting in never starts the dev server in
+    # debug mode by accident.
     if len(sys.argv) > 1 and sys.argv[1] == "--figma-diagnose":
         _run_figma_diagnose_cli(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
-        app.run(host="127.0.0.1", port=5000, debug=True)
+        debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+        app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5000)), debug=debug)
