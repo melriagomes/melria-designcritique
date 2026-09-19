@@ -1,1 +1,10 @@
 .claude/build-log-state/
+.claude/skills/ux-critic/scripts/node_modules/
+.claude/skills/ux-critic/scripts/dist/
+.claude/skills/ux-critic/scripts/package-lock.json
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+uploads/

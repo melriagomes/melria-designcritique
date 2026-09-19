@@ -1,0 +1,332 @@
+"""Local backend for the design-critique chat.
+
+Serves index.html and one API route (/api/critique) that resolves a
+submitted image or URL to a static image, then sends it to a vision model
+on Groq for a structured visual-design critique. Kept deliberately small:
+no database, no auth, no session memory — one request in, one critique
+out, per plan.md's MVP scope.
+"""
+import base64
+import mimetypes
+import os
+import re
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import requests
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request, send_from_directory
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
+
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+PAGE_LOAD_TIMEOUT_MS = 15_000
+
+FIGMA_API_BASE = "https://api.figma.com/v1"
+FIGMA_HOSTS = {"figma.com", "www.figma.com"}
+FIGMA_PATH_RE = re.compile(r"^/(file|design|proto|board)/([a-zA-Z0-9]+)")
+
+app = Flask(__name__, static_folder=None)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
+
+
+def get_api_key():
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is not set. Add it to the .env file in the project root and restart the server."
+        )
+    return api_key
+
+
+def get_figma_token():
+    token = os.environ.get("FIGMA_API_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "FIGMA_API_TOKEN is not set. Add a Figma personal access token to the .env file "
+            "(Figma account settings → Personal access tokens) to critique Figma links, then restart the server."
+        )
+    return token
+
+
+SYSTEM_PROMPT = """You are a senior visual-design critic. You are given one design — a UI screen, \
+graphic, poster, branding asset, slide, or similar — as an image. Critique it against these \
+categories only: visual hierarchy, contrast, alignment/grid, typography, spacing/whitespace, color, \
+and accessibility/legibility.
+
+Ground every point in something actually visible in the image — name the specific element or region \
+("the primary CTA button", "the paragraph under the hero image") rather than speaking generically.
+
+Cover at least three distinct categories that genuinely apply to this design; skip categories that \
+don't apply rather than forcing an issue that isn't there. Every issue you raise must be paired with a \
+concrete, actionable fix — never just "this looks off." A fix is specific enough to act on without \
+guessing (e.g. "increase the CTA button's text-to-background contrast to at least 4.5:1, e.g. by \
+darkening the blue from #6FA8DC to #2A6BB0" — not "improve contrast").
+
+Reply in exactly this Markdown structure and nothing else:
+
+## Overview
+One or two sentences on the overall impression — strongest asset and biggest weakness.
+
+## Issues
+### <Category name>
+- **Issue:** <specific, grounded observation>
+  **Fix:** <specific, actionable change>
+
+(repeat the `### <Category>` block for each category that applies)
+
+## Prioritized Fixes
+1. <the single highest-impact fix, restated briefly>
+2. <next>
+...
+(ordered fix-first to polish-later; every item here should trace back to an issue above)
+"""
+
+
+def error_response(message, status=400):
+    return jsonify({"error": message}), status
+
+
+def looks_like_image_extension(filename):
+    ext = Path(filename or "").suffix.lower()
+    return ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def resolve_uploaded_image(file_storage):
+    mime = file_storage.mimetype
+    if mime not in ALLOWED_IMAGE_MIME and not looks_like_image_extension(file_storage.filename):
+        return None, None, f"Unsupported image type ({mime or 'unknown'}). Use PNG, JPG, WEBP, or GIF."
+
+    data = file_storage.read()
+    if not data:
+        return None, None, "That image file appears to be empty."
+    if len(data) > MAX_UPLOAD_BYTES:
+        return None, None, "That image is larger than the 10MB limit."
+
+    if mime not in ALLOWED_IMAGE_MIME:
+        guessed, _ = mimetypes.guess_type(file_storage.filename or "")
+        mime = guessed or "image/png"
+
+    return data, mime, None
+
+
+def parse_figma_url(parsed):
+    """Return (file_key, node_id) for a figma.com file/design/proto/board URL, else None.
+
+    `node-id` in the URL uses a hyphen (e.g. "12-34"); the REST API expects a colon
+    ("12:34"), so it's translated here.
+    """
+    if parsed.netloc.lower() not in FIGMA_HOSTS:
+        return None
+    match = FIGMA_PATH_RE.match(parsed.path)
+    if not match:
+        return None
+
+    file_key = match.group(2)
+    node_id = None
+    raw_node_id = parse_qs(parsed.query).get("node-id", [None])[0]
+    if raw_node_id:
+        node_id = raw_node_id.replace("-", ":", 1) if ":" not in raw_node_id else raw_node_id
+    return file_key, node_id
+
+
+def resolve_figma_url_to_image(file_key, node_id):
+    try:
+        token = get_figma_token()
+    except RuntimeError as exc:
+        return None, None, str(exc)
+
+    headers = {"X-Figma-Token": token}
+
+    if not node_id:
+        try:
+            file_resp = requests.get(
+                f"{FIGMA_API_BASE}/files/{file_key}",
+                headers=headers,
+                params={"depth": 1},
+                timeout=15,
+            )
+        except requests.exceptions.RequestException as exc:
+            return None, None, f"Could not reach the Figma API: {exc}"
+        if file_resp.status_code >= 400:
+            return None, None, (
+                f"Figma API returned HTTP {file_resp.status_code} fetching that file. "
+                "Check the link and that your token has access to it."
+            )
+        pages = file_resp.json().get("document", {}).get("children", [])
+        if not pages:
+            return None, None, "That Figma file has no pages to render."
+        node_id = pages[0]["id"]
+
+    try:
+        image_resp = requests.get(
+            f"{FIGMA_API_BASE}/images/{file_key}",
+            headers=headers,
+            params={"ids": node_id, "format": "png", "scale": 2},
+            timeout=20,
+        )
+    except requests.exceptions.RequestException as exc:
+        return None, None, f"Could not reach the Figma API: {exc}"
+
+    if image_resp.status_code >= 400:
+        return None, None, (
+            f"Figma API returned HTTP {image_resp.status_code} rendering that link. "
+            "Check the link and that your token has access to it."
+        )
+
+    payload = image_resp.json()
+    if payload.get("err"):
+        return None, None, f"Figma couldn't render that node: {payload['err']}"
+
+    image_url = (payload.get("images") or {}).get(node_id)
+    if not image_url:
+        return None, None, (
+            "Figma didn't return a rendered image for that link — the node-id may be stale "
+            "or the frame may be empty."
+        )
+
+    try:
+        png_resp = requests.get(image_url, timeout=20)
+    except requests.exceptions.RequestException as exc:
+        return None, None, f"Could not download the rendered Figma image: {exc}"
+    if png_resp.status_code >= 400:
+        return None, None, f"Could not download the rendered Figma image (HTTP {png_resp.status_code})."
+
+    return png_resp.content, "image/png", None
+
+
+def resolve_url_to_image(url):
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None, None, "That doesn't look like a valid http(s) URL."
+
+    figma_target = parse_figma_url(parsed)
+    if figma_target:
+        return resolve_figma_url_to_image(*figma_target)
+
+    try:
+        resp = requests.get(
+            url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (design-critique-agent)"},
+            stream=True,
+        )
+    except requests.exceptions.Timeout:
+        return None, None, "Timed out trying to reach that URL."
+    except requests.exceptions.ConnectionError as exc:
+        return None, None, f"Could not reach that URL ({exc.__class__.__name__})."
+    except requests.exceptions.RequestException as exc:
+        return None, None, f"Could not fetch that URL: {exc}"
+
+    if resp.status_code >= 400:
+        return None, None, f"That URL returned HTTP {resp.status_code}."
+
+    content_type = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+
+    if content_type in ALLOWED_IMAGE_MIME:
+        data = resp.raw.read(MAX_UPLOAD_BYTES + 1, decode_content=True)
+        if len(data) > MAX_UPLOAD_BYTES:
+            return None, None, "The image at that URL is larger than the 10MB limit."
+        return data, content_type, None
+
+    # Not a direct image link — render the page and screenshot it instead.
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.goto(url, wait_until="load", timeout=PAGE_LOAD_TIMEOUT_MS)
+                screenshot = page.screenshot(full_page=True, type="png")
+            finally:
+                browser.close()
+    except PlaywrightTimeoutError:
+        return None, None, "That page took too long to load (timed out after 15s)."
+    except PlaywrightError as exc:
+        return None, None, f"Could not render that page: {exc}"
+
+    return screenshot, "image/png", None
+
+
+@app.route("/")
+def index():
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/api/critique", methods=["POST"])
+def critique():
+    image_file = request.files.get("image")
+    url = (request.form.get("url") or "").strip()
+    note = (request.form.get("note") or "").strip()
+
+    has_image = image_file is not None and image_file.filename
+    has_url = bool(url)
+
+    if has_image and has_url:
+        return error_response("Submit either an image or a URL for a single critique, not both.")
+    if not has_image and not has_url:
+        return error_response("Attach an image or enter a URL before sending.")
+
+    if has_image:
+        image_bytes, mime, err = resolve_uploaded_image(image_file)
+    else:
+        image_bytes, mime, err = resolve_url_to_image(url)
+
+    if err:
+        return error_response(err)
+
+    user_text = "Critique this design." if not note else f"Critique this design. Note from the user: {note}"
+
+    try:
+        api_key = get_api_key()
+    except RuntimeError as exc:
+        return error_response(str(exc), status=500)
+
+    data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    try:
+        resp = requests.post(
+            GROQ_API_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": GROQ_MODEL,
+                "max_tokens": 1500,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_text},
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                        ],
+                    },
+                ],
+            },
+            timeout=60,
+        )
+    except requests.exceptions.RequestException as exc:
+        return error_response(f"Could not reach the Groq API: {exc}", status=502)
+
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("error", {}).get("message", resp.text)
+        except ValueError:
+            detail = resp.text
+        return error_response(f"The AI service returned an error: {detail}", status=502)
+
+    reply_text = resp.json()["choices"][0]["message"]["content"]
+    return jsonify({"reply": reply_text})
+
+
+@app.errorhandler(413)
+def too_large(_exc):
+    return error_response("That upload is larger than the 10MB limit.", status=413)
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)
