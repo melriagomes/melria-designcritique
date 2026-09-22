@@ -41,11 +41,29 @@ plan this was built against.
 
 ## How it works
 
+The backend is an **orchestrator** (`server.py`) that composes four building blocks — mirroring this
+project's Claude Code skills, which follow the same shape (`ux-critic`, `graphic-critic`, etc. as
+specialists; `screenshot-annotator` as a shared skill):
+
 - `index.html` — the chat UI (vanilla HTML/CSS/JS, no build step).
-- `server.py` — a small Flask backend: resolves the submission to a static image (pass-through for an
-  upload or a direct image URL; a Figma REST API render for a `figma.com` file/design/proto/board link,
-  using the `node-id` in the URL when present, otherwise the file's first page; a Playwright-rendered
-  screenshot for any other webpage URL), sends it to a vision model on Groq with a fixed critique rubric,
-  and returns the critique text.
+- `design_reader.py` (+ `figma_reader.py`) — the **Design Reader**: resolves any submission (upload,
+  direct image URL, Figma file/design/proto/board link, or arbitrary webpage) to one static image, plus
+  the submitter's own context (audience/goal/note). `figma_reader.py` owns the Figma REST API integration
+  specifically (token handling, URL parsing, error classification); everything else — direct image
+  pass-through, downscaling for Groq's size limit, and Playwright screenshots of other webpages — lives in
+  `design_reader.py`.
+- `evidence_reporting.py` (+ `groq_client.py`) — the **specialist agents and synthesizer**: a shared
+  understanding pass, four independent discipline critics (UI/UX, Graphic Design, Product Design,
+  Interaction Design, each seeing the image but never each other's output), a synthesis pass that merges
+  their findings into one report, and a localization pass that grounds each numbered finding in a region
+  of the image (or explicitly leaves it unmarked when the finding isn't tied to one visible spot).
+  `groq_client.py` is the shared Groq chat-completions call (with rate-limit retry) every pass above uses.
+- `screenshot_annotator.py` — the **Screenshot Annotator**: draws the numbered callout markers the
+  localization pass located, directly on the submitted image (Pillow, in-memory). This is the same
+  drawing logic as the `screenshot-annotator` Claude Code skill, ported to run in-process for the deployed
+  app instead of as a subprocess script.
+- `server.py` — the **orchestrator**: the `/api/critique` route strings the above together (Design Reader
+  → shared understanding → specialists → synthesis → localization → Screenshot Annotator) and returns the
+  final Markdown report plus an annotated image when at least one finding could be located.
 - Stateless by design (per `plan.md`'s MVP scope): each submission is critiqued independently, no saved
   history or multi-turn memory yet.
