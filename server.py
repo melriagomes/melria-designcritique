@@ -1,55 +1,38 @@
-"""Local backend for the design-critique chat.
+"""Orchestrator for the design-critique chat.
 
-Serves index.html and one API route (/api/critique) that resolves a
-submitted image or URL to a static image, then sends it to a vision model
-on Groq for a structured visual-design critique. Kept deliberately small:
-no database, no auth, no session memory — one request in, one critique
-out, per plan.md's MVP scope.
+Serves index.html and one API route (/api/critique). The route itself is the
+orchestrator described in the project's architecture: it hands a submitted
+image or URL to the **Design Reader** (`design_reader`, backed by
+`figma_reader` for Figma links) to resolve one static image; runs the
+**Evidence & Reporting** pipeline (`evidence_reporting`) — a shared
+understanding pass, four independent discipline specialists (UI/UX, Graphic
+Design, Product Design, Interaction Design), a synthesis pass, and a
+localization pass; then hands the located findings to the **Screenshot
+Annotator** (`screenshot_annotator`) to render one annotated image. Kept
+deliberately small otherwise: no database, no auth, no session memory — one
+request in, one critique out, per plan.md's MVP scope.
 """
 import base64
-import io
 import logging
-import mimetypes
 import os
-import re
 import sys
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
-from PIL import Image
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
+
+import design_reader
+import evidence_reporting
+import figma_reader
+import screenshot_annotator
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-PAGE_LOAD_TIMEOUT_MS = 15_000
-GROQ_MAX_IMAGE_PIXELS = 33_177_600  # Groq vision models reject anything larger than this
-
-# --- Figma REST API integration -------------------------------------------
-#
-# This talks to Figma's REST API directly over HTTPS using a Personal Access
-# Token (FIGMA_API_TOKEN, sent as the `X-Figma-Token` header). This is a
-# completely separate credential and code path from any Figma MCP server an
-# AI coding agent (e.g. inside an editor) might use during development — the
-# two are never wired together, and this token is never shared with or read
-# by an MCP client. The token only ever lives server-side: it is read from
-# the environment in this file and never sent to, or embedded in, anything
-# served to the browser (index.html makes no Figma calls of its own).
-FIGMA_API_BASE = "https://api.figma.com/v1"
-FIGMA_HOSTS = {"figma.com", "www.figma.com"}
-FIGMA_PATH_RE = re.compile(r"^/(file|design|proto|board)/([a-zA-Z0-9_-]+)")
 
 app = Flask(__name__, static_folder=None)
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
+app.config["MAX_CONTENT_LENGTH"] = design_reader.MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
 app.logger.setLevel(logging.INFO)
 
 
@@ -126,344 +109,6 @@ def error_response(message, status=400):
     return jsonify({"error": message}), status
 
 
-def looks_like_image_extension(filename):
-    ext = Path(filename or "").suffix.lower()
-    return ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-
-
-def downscale_for_groq(image_bytes, mime):
-    """Shrink an image to fit Groq's max-pixel limit for vision models.
-
-    Applies regardless of where the image came from (upload, direct image URL,
-    Figma render, or webpage screenshot) — any of those can exceed the limit,
-    most commonly a full-page screenshot of a tall webpage or a Figma render
-    at 2x scale. Returns (possibly-unchanged) image_bytes and mime.
-    """
-    try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            pixels = img.width * img.height
-            if pixels <= GROQ_MAX_IMAGE_PIXELS:
-                return image_bytes, mime
-
-            # A small safety margin below the exact limit avoids rounding the
-            # resized dimensions back up to the boundary.
-            scale = (GROQ_MAX_IMAGE_PIXELS / pixels) ** 0.5 * 0.99
-            new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
-            resized = img.convert("RGB") if img.mode in ("P", "CMYK") else img
-            resized = resized.resize(new_size, Image.LANCZOS)
-
-            buf = io.BytesIO()
-            resized.save(buf, format="PNG")
-            app.logger.info(
-                "downscaled oversized image for groq: %sx%s (%s px) -> %sx%s (%s px)",
-                img.width, img.height, pixels, new_size[0], new_size[1], new_size[0] * new_size[1],
-            )
-            return buf.getvalue(), "image/png"
-    except Exception as exc:  # noqa: BLE001 - image parsing can fail in many ways; fall back safely
-        app.logger.warning("could not inspect/downscale image (%s) — sending as-is", exc)
-        return image_bytes, mime
-
-
-def resolve_uploaded_image(file_storage):
-    mime = file_storage.mimetype
-    if mime not in ALLOWED_IMAGE_MIME and not looks_like_image_extension(file_storage.filename):
-        return None, None, f"Unsupported image type ({mime or 'unknown'}). Use PNG, JPG, WEBP, or GIF."
-
-    data = file_storage.read()
-    if not data:
-        return None, None, "That image file appears to be empty."
-    if len(data) > MAX_UPLOAD_BYTES:
-        return None, None, "That image is larger than the 10MB limit."
-
-    if mime not in ALLOWED_IMAGE_MIME:
-        guessed, _ = mimetypes.guess_type(file_storage.filename or "")
-        mime = guessed or "image/png"
-
-    return data, mime, None
-
-
-def redact_token(token):
-    """Never log or return the actual token — only a shape hint safe to show."""
-    if not token:
-        return None
-    prefix = "figd_" if token.startswith("figd_") else token[:4] + "…" if len(token) > 4 else "…"
-    return f"{prefix}(redacted, {len(token)} chars)"
-
-
-def figma_error_detail(resp):
-    """Pull Figma's own (non-secret) error message out of a response, if present."""
-    try:
-        body = resp.json()
-    except ValueError:
-        return None
-    return body.get("message") or body.get("err")
-
-
-def classify_figma_error(status_code, detail=None, used_own_token=False):
-    """Map a Figma REST API status code to (log_label, user_facing_message).
-
-    Never includes the token. `detail` is Figma's own response message (safe —
-    it describes scopes/permissions, not credentials) and is appended when present.
-
-    `used_own_token` distinguishes a visitor's own Settings key from this
-    app's shared fallback token — the actionable advice for a 403 is
-    different for each, since a Figma token (personal or shared) can only
-    ever see files its owning account has access to.
-    """
-    if status_code == 401:
-        label = "auth"
-        msg = "Figma rejected the token as invalid, revoked, or malformed (HTTP 401)."
-    elif status_code == 403:
-        label = "permission"
-        if used_own_token:
-            msg = (
-                "Figma denied access with your token (HTTP 403). If Figma's message below says "
-                "\"Invalid token\", re-check that you copied the whole token with no missing or extra "
-                "characters — re-paste it in Settings if unsure. Otherwise, check that the token has the "
-                "\"File content\" read-only scope, and — if you created it through Figma's current token "
-                "screen — that this file (or its project) was explicitly added to the token's file access "
-                "list, since scoped tokens only see files you've granted them."
-            )
-        else:
-            msg = (
-                "This app's shared Figma token can't access this file (HTTP 403) — expected for any file "
-                "it doesn't own, since a Figma token only sees what its owning account can see. To "
-                "critique your own Figma file, open Settings, add your own Figma personal access token "
-                "(tap the ⓘ next to \"Your API keys\" for how), mark it active, then paste the link again."
-            )
-    elif status_code == 404:
-        label = "not_found"
-        msg = "Figma couldn't find that file (HTTP 404) — double-check the file key in the URL."
-    elif status_code == 429:
-        label = "rate_limit"
-        msg = "Figma rate-limited this request (HTTP 429) — wait a moment and try again."
-    elif status_code >= 500:
-        label = "figma_outage"
-        msg = f"Figma's API returned a server error (HTTP {status_code}) — try again shortly."
-    else:
-        label = "unknown"
-        msg = f"Figma API returned HTTP {status_code}."
-
-    if detail:
-        msg = f"{msg} Figma says: {detail}"
-    return label, msg
-
-
-def log_figma_error(context, resp, used_own_token=False):
-    """Log a Figma API failure server-side with full (non-secret) detail, and
-    return the safe, classified message to show the user."""
-    detail = figma_error_detail(resp)
-    label, user_msg = classify_figma_error(resp.status_code, detail, used_own_token=used_own_token)
-    app.logger.warning(
-        "figma api error: context=%s status=%s label=%s endpoint=%s detail=%s",
-        context, resp.status_code, label, resp.url, detail,
-    )
-    return user_msg
-
-
-def figma_diagnostics(file_key=None):
-    """Safe, read-only diagnostic for the Figma REST integration.
-
-    Checks (1) whether FIGMA_API_TOKEN is set, (2) which Figma account it
-    authenticates as (if the token's scopes allow that lookup), and (3)
-    whether a specific file_key is accessible with it. Never includes the
-    token itself — only a redacted shape hint. Intended for server-side
-    debugging (logs, or the `--figma-diagnose` CLI below), never returned
-    to a browser client.
-    """
-    token = os.environ.get("FIGMA_API_TOKEN")
-    result = {
-        "token_present": bool(token),
-        "token_redacted": redact_token(token),
-        "authenticated_account": None,
-        "file_access": None,
-    }
-    if not token:
-        return result
-
-    headers = {"X-Figma-Token": token}
-
-    try:
-        me_resp = requests.get(f"{FIGMA_API_BASE}/me", headers=headers, timeout=10)
-    except requests.exceptions.RequestException as exc:
-        result["authenticated_account"] = f"unavailable ({exc.__class__.__name__})"
-    else:
-        if me_resp.status_code == 200:
-            me = me_resp.json()
-            result["authenticated_account"] = {"email": me.get("email"), "handle": me.get("handle")}
-        else:
-            label, _ = classify_figma_error(me_resp.status_code, figma_error_detail(me_resp))
-            result["authenticated_account"] = (
-                f"unavailable (HTTP {me_resp.status_code}, {label} — this token may not carry the "
-                "current_user:read scope, which is unrelated to file-reading access)"
-            )
-
-    if file_key:
-        try:
-            file_resp = requests.get(
-                f"{FIGMA_API_BASE}/files/{file_key}", headers=headers, params={"depth": 1}, timeout=10
-            )
-        except requests.exceptions.RequestException as exc:
-            result["file_access"] = f"unavailable ({exc.__class__.__name__})"
-        else:
-            if file_resp.status_code == 200:
-                result["file_access"] = "ok"
-            else:
-                label, _ = classify_figma_error(file_resp.status_code, figma_error_detail(file_resp))
-                result["file_access"] = f"denied (HTTP {file_resp.status_code}, {label})"
-
-    return result
-
-
-def parse_figma_url(parsed):
-    """Return (file_key, node_id) for a figma.com file/design/proto/board URL, else None.
-
-    `node-id` in the URL uses a hyphen (e.g. "12-34"); the REST API expects a colon
-    ("12:34"), so it's translated here.
-    """
-    if parsed.netloc.lower() not in FIGMA_HOSTS:
-        return None
-    match = FIGMA_PATH_RE.match(parsed.path)
-    if not match:
-        return None
-
-    file_key = match.group(2)
-    node_id = None
-    raw_node_id = parse_qs(parsed.query).get("node-id", [None])[0]
-    if raw_node_id:
-        node_id = raw_node_id.replace("-", ":", 1) if ":" not in raw_node_id else raw_node_id
-    return file_key, node_id
-
-
-def resolve_figma_url_to_image(file_key, node_id, figma_token_override=None):
-    try:
-        token = get_figma_token(figma_token_override)
-    except RuntimeError as exc:
-        return None, None, str(exc)
-
-    used_own_token = bool(figma_token_override)
-    headers = {"X-Figma-Token": token}
-
-    if not node_id:
-        try:
-            file_resp = requests.get(
-                f"{FIGMA_API_BASE}/files/{file_key}",
-                headers=headers,
-                params={"depth": 1},
-                timeout=15,
-            )
-        except requests.exceptions.RequestException as exc:
-            return None, None, f"Could not reach the Figma API: {exc}"
-        if file_resp.status_code >= 400:
-            return None, None, log_figma_error(f"files/{file_key}", file_resp, used_own_token=used_own_token)
-        pages = file_resp.json().get("document", {}).get("children", [])
-        if not pages:
-            return None, None, "That Figma file has no pages to render."
-        node_id = pages[0]["id"]
-
-    try:
-        image_resp = requests.get(
-            f"{FIGMA_API_BASE}/images/{file_key}",
-            headers=headers,
-            params={"ids": node_id, "format": "png", "scale": 2},
-            timeout=20,
-        )
-    except requests.exceptions.RequestException as exc:
-        return None, None, f"Could not reach the Figma API: {exc}"
-
-    if image_resp.status_code >= 400:
-        return None, None, log_figma_error(f"images/{file_key}", image_resp, used_own_token=used_own_token)
-
-    payload = image_resp.json()
-    if payload.get("err"):
-        return None, None, f"Figma couldn't render that node: {payload['err']}"
-
-    image_url = (payload.get("images") or {}).get(node_id)
-    if not image_url:
-        return None, None, (
-            "Figma didn't return a rendered image for that link — the node-id may be stale "
-            "or the frame may be empty."
-        )
-
-    try:
-        png_resp = requests.get(image_url, timeout=20)
-    except requests.exceptions.RequestException as exc:
-        return None, None, f"Could not download the rendered Figma image: {exc}"
-    if png_resp.status_code >= 400:
-        return None, None, f"Could not download the rendered Figma image (HTTP {png_resp.status_code})."
-
-    return png_resp.content, "image/png", None
-
-
-def resolve_url_to_image(url, access_token_override=None):
-    """Resolve any pasted URL to an image, using `access_token_override` (the
-    visitor's currently-active Settings key) to authenticate the fetch when
-    the target needs it.
-
-    A figma.com link uses that key exactly as before — sent as the
-    `X-Figma-Token` header to Figma's REST API. Any other URL sends it as a
-    standard `Authorization: Bearer <token>` header on the direct fetch and
-    the page render, so a visitor's own protected site (or any API requiring
-    bearer-token auth) works the same way a public one does. When no key is
-    set, requests go out unauthenticated exactly as before.
-    """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        return None, None, "That doesn't look like a valid http(s) URL."
-
-    figma_target = parse_figma_url(parsed)
-    if figma_target:
-        return resolve_figma_url_to_image(*figma_target, figma_token_override=access_token_override)
-
-    headers = {"User-Agent": "Mozilla/5.0 (design-critique-agent)"}
-    if access_token_override:
-        headers["Authorization"] = f"Bearer {access_token_override}"
-
-    try:
-        resp = requests.get(
-            url,
-            timeout=10,
-            headers=headers,
-            stream=True,
-        )
-    except requests.exceptions.Timeout:
-        return None, None, "Timed out trying to reach that URL."
-    except requests.exceptions.ConnectionError as exc:
-        return None, None, f"Could not reach that URL ({exc.__class__.__name__})."
-    except requests.exceptions.RequestException as exc:
-        return None, None, f"Could not fetch that URL: {exc}"
-
-    if resp.status_code >= 400:
-        return None, None, f"That URL returned HTTP {resp.status_code}."
-
-    content_type = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-
-    if content_type in ALLOWED_IMAGE_MIME:
-        data = resp.raw.read(MAX_UPLOAD_BYTES + 1, decode_content=True)
-        if len(data) > MAX_UPLOAD_BYTES:
-            return None, None, "The image at that URL is larger than the 10MB limit."
-        return data, content_type, None
-
-    # Not a direct image link — render the page and screenshot it instead.
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch()
-            try:
-                page = browser.new_page(viewport={"width": 1440, "height": 900})
-                if access_token_override:
-                    page.set_extra_http_headers({"Authorization": f"Bearer {access_token_override}"})
-                page.goto(url, wait_until="load", timeout=PAGE_LOAD_TIMEOUT_MS)
-                screenshot = page.screenshot(full_page=True, type="png")
-            finally:
-                browser.close()
-    except PlaywrightTimeoutError:
-        return None, None, "That page took too long to load (timed out after 15s)."
-    except PlaywrightError as exc:
-        return None, None, f"Could not render that page: {exc}"
-
-    return screenshot, "image/png", None
-
-
 @app.route("/")
 def index():
     return send_from_directory(BASE_DIR, "index.html")
@@ -479,6 +124,8 @@ def critique():
     image_file = request.files.get("image")
     url = (request.form.get("url") or "").strip()
     note = (request.form.get("note") or "").strip()
+    audience = (request.form.get("audience") or "").strip()
+    goals = (request.form.get("goals") or "").strip()
     # The visitor's currently-active key from the Settings page (browser
     # localStorage), sent with this request only and never written to disk
     # server-side. Empty means "not set" — Figma URLs then fall back to the
@@ -493,56 +140,151 @@ def critique():
     if not has_image and not has_url:
         return error_response("Attach an image or enter a URL before sending.")
 
+    # --- Design Reader: resolve the submission to one static image ---------
     if has_image:
-        image_bytes, mime, err = resolve_uploaded_image(image_file)
+        image_bytes, mime, err = design_reader.resolve_uploaded_image(image_file)
     else:
-        image_bytes, mime, err = resolve_url_to_image(url, access_token_override=access_token_override)
+        image_bytes, mime, err = design_reader.resolve_url_to_image(
+            url, access_token_override=access_token_override, logger=app.logger
+        )
 
     if err:
         return error_response(err)
-
-    user_text = "Critique this design." if not note else f"Critique this design. Note from the user: {note}"
 
     try:
         api_key = get_api_key()
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
 
-    image_bytes, mime = downscale_for_groq(image_bytes, mime)
-
+    image_bytes, mime = design_reader.downscale_for_groq(image_bytes, mime, logger=app.logger)
     data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-    try:
-        resp = requests.post(
-            GROQ_API_URL,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": GROQ_MODEL,
-                "max_completion_tokens": 800,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": user_text},
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                        ],
-                    },
-                ],
-            },
-            timeout=60,
+
+    context_block = design_reader.build_context_block(audience, goals, note)
+
+    # --- Evidence & Reporting: shared understanding pass --------------------
+    # Decides which disciplines are actually relevant (never assume every
+    # specialist must weigh in) so specialists don't each have to rediscover
+    # the design from scratch.
+    understanding_raw, understanding_err = evidence_reporting.run_understanding_pass(
+        api_key, context_block, data_url, logger=app.logger
+    )
+    if understanding_err:
+        # The understanding pass is a focus/coverage optimization, not a hard
+        # requirement — fall back to running every specialist rather than failing
+        # the whole request over it.
+        app.logger.warning("understanding pass failed: %s", understanding_err)
+        shared_understanding = "(Shared understanding pass unavailable — each specialist is reviewing independently.)"
+        relevant_labels = list(evidence_reporting.DISCIPLINE_LABELS)
+    else:
+        shared_understanding, relevant_labels = evidence_reporting.parse_understanding(understanding_raw)
+
+    agent_user_text = evidence_reporting.build_agent_user_text(shared_understanding, context_block)
+
+    # --- Evidence & Reporting: independent discipline specialists -----------
+    # Delegate to only the relevant discipline agents, each independently (none
+    # sees another's output). Run sequentially rather than in parallel: this
+    # endpoint now makes up to 7 Groq calls per critique (1 understanding pass +
+    # up to 4 agents + 1 synthesis + 1 localization) instead of 1, and
+    # on-demand/free-tier Groq accounts have a fairly tight per-minute token
+    # quota — concurrent image-bearing calls reliably burst past it, where
+    # sequential calls (plus the rate-limit retry in call_groq_chat) naturally
+    # spread the load and recover.
+    agents = [
+        (label, evidence_reporting.DISCIPLINE_PROMPTS[label])
+        for label in evidence_reporting.DISCIPLINE_LABELS
+        if label in relevant_labels
+    ]
+
+    critiques = {}
+    failures = {}
+    for label, prompt in agents:
+        _, text, err = evidence_reporting.run_discipline_agent(
+            label, prompt, api_key, agent_user_text, data_url, logger=app.logger
         )
-    except requests.exceptions.RequestException as exc:
-        return error_response(f"Could not reach the Groq API: {exc}", status=502)
+        if err:
+            failures[label] = err
+            app.logger.warning("discipline agent failed: %s: %s", label, err)
+        else:
+            critiques[label] = text
 
-    if resp.status_code >= 400:
+    if not critiques:
+        first_error = next(iter(failures.values()))
+        return error_response(f"All critique agents failed: {first_error}", status=502)
+
+    # --- Evidence & Reporting: synthesis -------------------------------------
+    synthesis_context_lines = [context_block, f"Shared design understanding:\n{shared_understanding}"]
+    skipped = [label for label in evidence_reporting.DISCIPLINE_LABELS if label not in relevant_labels]
+    if skipped:
+        synthesis_context_lines.append(
+            "Not run (judged not relevant to this design by the initial understanding pass): "
+            + ", ".join(skipped)
+        )
+    if failures:
+        synthesis_context_lines.append(
+            "Not included below (a technical failure, not a design finding): " + ", ".join(failures)
+        )
+    synthesis_context = "\n\n".join(synthesis_context_lines)
+
+    critiques_block = "\n\n".join(
+        f"=== {label} critique ===\n{critiques[label]}"
+        for label in evidence_reporting.DISCIPLINE_LABELS
+        if label in critiques
+    )
+
+    synthesis_user_text = (
+        f"{synthesis_context}\n\n"
+        f"Independent specialist critiques to compare and synthesize:\n\n{critiques_block}"
+    )
+
+    final_text, err = evidence_reporting.run_synthesis_pass(api_key, synthesis_user_text, logger=app.logger)
+    if err:
+        return error_response(err, status=502)
+
+    # --- Evidence & Reporting: localization, then Screenshot Annotator ------
+    # Number the synthesized findings, ask which ones tie to a visible region
+    # and where, and render an annotated image from whatever was located. Both
+    # steps degrade gracefully to no annotation rather than failing the request.
+    numbered_text, findings = evidence_reporting.number_key_findings(final_text)
+    located = evidence_reporting.run_localization_pass(api_key, data_url, findings, logger=app.logger)
+
+    annotated_image_data_url = None
+    if located:
         try:
-            detail = resp.json().get("error", {}).get("message", resp.text)
-        except ValueError:
-            detail = resp.text
-        return error_response(f"The AI service returned an error: {detail}", status=502)
+            annotated_bytes = screenshot_annotator.annotate_image(image_bytes, located)
+            annotated_image_data_url = (
+                f"data:image/png;base64,{base64.b64encode(annotated_bytes).decode('ascii')}"
+            )
+        except Exception as exc:  # noqa: BLE001 - rendering can fail in many ways; never break the critique over it
+            app.logger.warning("screenshot annotation failed: %s", exc)
+            located = []
 
-    reply_text = resp.json()["choices"][0]["message"]["content"]
-    return jsonify({"reply": reply_text})
+    if annotated_image_data_url:
+        located_numbers = sorted(item["number"] for item in located)
+        note = (
+            "The image above is annotated — marker **N** corresponds to **Finding N** under Key "
+            "Findings. "
+        )
+        skipped_numbers = [f["number"] for f in findings if f["number"] not in located_numbers]
+        if skipped_numbers:
+            skipped_list = ", ".join(str(n) for n in skipped_numbers)
+            note += (
+                f"Finding(s) {skipped_list} aren't tied to a single visible region (conceptual/strategic "
+                "or not verifiable from a still image), so they aren't marked."
+            )
+    elif findings:
+        note = (
+            "No findings in this critique were tied to a single, clearly visible region, so no annotated "
+            "image is included this time."
+        )
+    else:
+        note = "No numbered findings were produced for this critique, so there's nothing to annotate."
+
+    final_text = evidence_reporting.replace_annotated_screenshots_section(numbered_text, note)
+
+    response = {"reply": final_text}
+    if annotated_image_data_url:
+        response["annotated_image"] = annotated_image_data_url
+    return jsonify(response)
 
 
 @app.errorhandler(413)
@@ -562,7 +304,7 @@ def _run_figma_diagnose_cli(arg):
     if arg:
         parsed = urlparse(arg)
         if parsed.scheme in ("http", "https"):
-            target = parse_figma_url(parsed)
+            target = figma_reader.parse_figma_url(parsed)
             if not target:
                 print("That doesn't look like a figma.com file/design/proto/board URL.")
                 return
@@ -570,7 +312,7 @@ def _run_figma_diagnose_cli(arg):
         else:
             file_key = arg.strip()
 
-    diag = figma_diagnostics(file_key)
+    diag = figma_reader.figma_diagnostics(file_key)
     print(f"token present:          {diag['token_present']}")
     print(f"token (redacted):       {diag['token_redacted']}")
     print(f"authenticated account:  {diag['authenticated_account']}")

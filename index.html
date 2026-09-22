@@ -151,6 +151,14 @@
     margin-bottom: 0.375rem;
     display: block;
   }
+  .msg .note { margin-top: 4px; font-size: 13px; opacity: 0.9; }
+  .msg .annotated {
+    display: block;
+    max-width: 100%;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+  }
   .msg .note { margin-top: 0.25rem; font-size: 0.8125rem; opacity: 0.9; }
   .msg .url-chip {
     font-size: 0.8125rem;
@@ -239,7 +247,7 @@
     border: none; background: none; color: var(--muted); cursor: pointer; font-size: 0.8125rem; text-decoration: underline;
   }
 
-  #urlInput, #noteInput {
+  #urlInput, #audienceInput, #goalsInput, #noteInput {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 0.625rem;
@@ -308,6 +316,8 @@
       <input type="text" id="urlInput" placeholder="https://example.com/screen-to-critique or a figma.com file/design link">
     </div>
 
+    <input type="text" id="audienceInput" placeholder="Intended audience (optional, e.g. “new users on mobile”)">
+    <input type="text" id="goalsInput" placeholder="Design goal (optional, e.g. “increase signups”)">
     <textarea id="noteInput" placeholder="Optional note (e.g. “focus on the checkout flow”)"></textarea>
 
     <div class="send-row">
@@ -330,6 +340,8 @@ const previewThumb = document.getElementById('previewThumb');
 const previewName = document.getElementById('previewName');
 const removeFile = document.getElementById('removeFile');
 const urlInput = document.getElementById('urlInput');
+const audienceInput = document.getElementById('audienceInput');
+const goalsInput = document.getElementById('goalsInput');
 const noteInput = document.getElementById('noteInput');
 const sendBtn = document.getElementById('sendBtn');
 const hint = document.getElementById('hint');
@@ -446,7 +458,7 @@ function renderMarkdown(md) {
   return html;
 }
 
-function addUserMessage({ file, url, note }) {
+function addUserMessage({ file, url, note, audience, goals }) {
   const wrap = document.createElement('div');
   wrap.className = 'msg user';
   const bubble = document.createElement('div');
@@ -463,10 +475,14 @@ function addUserMessage({ file, url, note }) {
     chip.textContent = url;
     bubble.appendChild(chip);
   }
-  if (note) {
+  const extraLines = [];
+  if (audience) extraLines.push(`Audience: ${audience}`);
+  if (goals) extraLines.push(`Goal: ${goals}`);
+  if (note) extraLines.push(note);
+  if (extraLines.length) {
     const noteEl = document.createElement('div');
     noteEl.className = 'note';
-    noteEl.textContent = note;
+    noteEl.textContent = extraLines.join(' · ');
     bubble.appendChild(noteEl);
   }
   wrap.appendChild(bubble);
@@ -484,12 +500,15 @@ function addTypingBubble() {
   return wrap;
 }
 
-function replaceTyping(html, isError) {
+function replaceTyping(html, isError, annotatedImageDataUrl) {
   const typing = document.getElementById('typingBubble');
   if (!typing) return;
   typing.className = isError ? 'msg error' : 'msg agent';
   typing.id = '';
-  typing.querySelector('.bubble').innerHTML = html;
+  const imgHtml = annotatedImageDataUrl
+    ? `<img class="annotated" src="${annotatedImageDataUrl}" alt="Annotated design with numbered callouts">`
+    : '';
+  typing.querySelector('.bubble').innerHTML = imgHtml + html;
   scrollToBottom();
 }
 
@@ -508,19 +527,23 @@ function setBusy(next) {
 sendBtn.addEventListener('click', async () => {
   if (busy) return;
   const note = noteInput.value.trim();
+  const audience = audienceInput.value.trim();
+  const goals = goalsInput.value.trim();
   const formData = new FormData();
 
   if (mode === 'image') {
     if (!selectedFile) return;
     formData.append('image', selectedFile);
-    addUserMessage({ file: selectedFile, note });
+    addUserMessage({ file: selectedFile, note, audience, goals });
   } else {
     const url = urlInput.value.trim();
     if (!url) return;
     formData.append('url', url);
-    addUserMessage({ url, note });
+    addUserMessage({ url, note, audience, goals });
   }
   if (note) formData.append('note', note);
+  if (audience) formData.append('audience', audience);
+  if (goals) formData.append('goals', goals);
 
   // Attach whichever key this visitor marked active in Settings, if any —
   // used to authenticate the URL fetch (Figma token for figma.com links,
@@ -536,6 +559,8 @@ sendBtn.addEventListener('click', async () => {
   fileInput.value = '';
   filePreview.style.display = 'none';
   urlInput.value = '';
+  audienceInput.value = '';
+  goalsInput.value = '';
   noteInput.value = '';
   hint.textContent = '';
 
@@ -548,7 +573,7 @@ sendBtn.addEventListener('click', async () => {
     if (!res.ok) {
       replaceTyping(escapeHtml(data.error || 'Something went wrong.'), true);
     } else {
-      replaceTyping(renderMarkdown(data.reply || ''), false);
+      replaceTyping(renderMarkdown(data.reply || ''), false, data.annotated_image);
     }
   } catch (err) {
     replaceTyping('Could not reach the server. Is server.py still running?', true);
