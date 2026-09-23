@@ -233,6 +233,35 @@
     color: var(--text);
   }
   #addKeyForm input:focus { outline: none; border-color: var(--accent); }
+
+  .ai-key-form { display: flex; gap: 0.5rem; }
+  .ai-key-form input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .ai-key-form select {
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.5rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    background: var(--panel);
+    color: var(--text);
+    flex-shrink: 0;
+  }
+  .ai-key-form input:focus, .ai-key-form select:focus { outline: none; border-color: var(--accent); }
+  @media (max-width: 520px) {
+    .ai-key-form { flex-wrap: wrap; }
+    .ai-key-form select { width: 100%; }
+  }
+  .modal a { color: var(--accent-text); }
   .add-key-actions { display: flex; gap: 0.5rem; }
 
   #addKeyToggle {
@@ -364,17 +393,16 @@
     <button id="backBtn" type="button" title="Back" aria-label="Back to chat"><span class="material-symbols-outlined">arrow_back</span></button>
     <div>
       <h1>Settings</h1>
-      <p>Add your own API keys and pick which one to use.</p>
+      <p>Add your own AI and Figma API keys.</p>
     </div>
   </header>
 
   <main>
     <div class="note-box">
       Keys are saved only in this browser and sent to this app's own server just for the request
-      you're making. Add one key per site or service, then mark one <strong>active</strong> —
-      that's the one used the next time you paste a URL. A figma.com link uses the active key as a
-      Figma access token; any other URL sends it as a standard Authorization bearer token, so it
-      works for your own site or API too.
+      you're making. Your <strong>AI API key</strong> — from Anthropic, OpenAI, Google Gemini, or
+      Groq — runs critiques on your own account instead of the app's shared one. <strong>Figma API keys</strong> are only used for figma.com
+      links — mark one <strong>active</strong> and it's used the next time you paste one.
     </div>
 
     <div class="section-head">
@@ -408,20 +436,48 @@
     </div>
 
     <div class="section-head">
-      <h2>Your API keys</h2>
+      <h2>AI API key</h2>
+      <button type="button" class="info-btn" id="aiInfoBtn" title="How to get an AI API key" aria-label="How to get an AI API key"><span class="material-symbols-outlined">info</span></button>
+    </div>
+
+    <div class="key-row active" id="aiKeyRow" style="display:none;">
+      <div class="key-info">
+        <div class="key-name" id="aiKeyName"></div>
+        <div class="key-value" id="aiKeyMasked"></div>
+      </div>
+      <button type="button" class="key-remove" id="aiKeyRemove">Remove</button>
+    </div>
+    <div class="empty-hint" id="aiEmptyHint">Using this app's shared AI key (Groq). Add your own to run critiques on your own Anthropic, OpenAI, Gemini, or Groq account.</div>
+
+    <div class="ai-key-form">
+      <select id="aiProvider" aria-label="AI provider">
+        <option value="">Detect from key</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="groq">Groq</option>
+      </select>
+      <input type="password" id="aiKeyValue" placeholder="API key (sk-ant-…, sk-…, AIza…, gsk_…)" autocomplete="off" aria-label="AI API key">
+    </div>
+    <div class="ai-key-form">
+      <input type="text" id="aiModel" placeholder="Model (optional — leave blank for the provider's default)" autocomplete="off" aria-label="Model (optional)">
+      <button type="button" class="btn-primary" id="aiKeySave">Save</button>
+    </div>
+    <div class="empty-hint" id="aiDetectHint" style="display:none;"></div>
+
+    <div class="section-head">
+      <h2>Figma API keys</h2>
+      <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma personal access token" aria-label="How to get a Figma personal access token"><span class="material-symbols-outlined">info</span></button>
     </div>
 
     <div id="keyList"></div>
-    <div class="empty-hint" id="emptyHint" style="display:none;">No keys saved yet. Add one below.</div>
+    <div class="empty-hint" id="emptyHint" style="display:none;">No Figma keys saved yet — figma.com links use the app's shared token. Add one below.</div>
 
-    <button type="button" id="addKeyToggle"><span class="material-symbols-outlined">add</span> Add a key</button>
+    <button type="button" id="addKeyToggle"><span class="material-symbols-outlined">add</span> Add a Figma key</button>
 
     <div id="addKeyForm">
-      <div class="name-row">
-        <input type="text" id="newKeyName" placeholder="Name (e.g. Figma, My website API)">
-        <button type="button" class="warn-btn" id="figmaInfoBtn" title="Required permissions for a Figma token" aria-label="Required permissions for a Figma token"><span class="material-symbols-outlined">warning</span></button>
-      </div>
-      <input type="password" id="newKeyValue" placeholder="Key or token value" autocomplete="off">
+      <input type="text" id="newKeyName" placeholder="Name (e.g. Personal, Work)">
+      <input type="password" id="newKeyValue" placeholder="Figma personal access token (figd_…)" autocomplete="off">
       <div class="add-key-actions">
         <button type="button" class="btn-primary" id="newKeySave">Save key</button>
         <button type="button" class="btn-secondary" id="newKeyCancel">Cancel</button>
@@ -430,6 +486,25 @@
 
     <span id="saveStatus"></span>
   </main>
+</div>
+
+<div class="modal-overlay" id="aiInfoModal">
+  <div class="modal">
+    <h2>Getting an AI API key</h2>
+    <p>Use a key from any one of these providers. Create it, copy it right away (most only show it once), paste it above and click <strong>Save</strong>.</p>
+    <ol>
+      <li><strong>Anthropic</strong> — <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a>. Starts with <strong>sk-ant-</strong>.</li>
+      <li><strong>OpenAI</strong> — <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>. Starts with <strong>sk-</strong>.</li>
+      <li><strong>Google Gemini</strong> — <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Starts with <strong>AIza</strong>.</li>
+      <li><strong>Groq</strong> — <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> (a free account works). Starts with <strong>gsk_</strong>.</li>
+    </ol>
+    <p>The provider is detected from the key's prefix; pick it by hand if detection fails. The model is optional — the app uses a vision-capable default for each provider — but it must be one that accepts images.</p>
+    <p>Critiques then run on your account and are billed to it. Remove the key any time to go back to the app's shared key.</p>
+    <p>Treat this key like a password — anyone with it can use your account.</p>
+    <div class="modal-close-row">
+      <button id="aiInfoClose" type="button">Got it</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="figmaInfoModal">
@@ -444,7 +519,7 @@
       <li><em>Optional:</em> <strong>Current user — Read only</strong> is not required for critiques; it's only used by this app's diagnostics to confirm which account a token belongs to.</li>
       <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Add it below as a new key (name it something like "Figma") and mark it active.</li>
     </ol>
-    <p>This is only for Figma links. For any other website, add its API key the same way — it'll be sent as a standard bearer token when you paste that site's URL.</p>
+    <p>This token is only ever sent to Figma, for figma.com links.</p>
     <p>Treat every key here like a password — anyone with it can access whatever it's scoped to.</p>
     <div class="modal-close-row">
       <button id="figmaInfoClose" type="button">Got it</button>
@@ -457,6 +532,7 @@ const KEYS_STORAGE = 'designCritiqueApiKeys';
 const ACTIVE_ID_STORAGE = 'designCritiqueActiveApiKeyId';
 const THEME_STORAGE = 'designCritiqueTheme';
 const SCALE_STORAGE = 'designCritiqueScale';
+const AI_KEY_STORAGE = 'designCritiqueAiApiKey';
 
 const themeControl = document.getElementById('themeControl');
 const scaleControl = document.getElementById('scaleControl');
@@ -596,14 +672,18 @@ function render() {
   });
 }
 
-backBtn.addEventListener('click', () => {
-  window.location.href = '/';
-});
-
-function updateFigmaWarnVisibility() {
-  figmaInfoBtn.classList.toggle('show', newKeyName.value.toLowerCase().includes('figma'));
+// When opened as the chat page's overlay, "back" just closes the overlay so
+// any critique still running there keeps going; opened directly, it navigates.
+const isEmbedded = window.parent !== window;
+function goBack() {
+  if (isEmbedded) window.parent.postMessage({ type: 'closeSettings' }, window.location.origin);
+  else window.location.href = '/';
 }
-newKeyName.addEventListener('input', updateFigmaWarnVisibility);
+backBtn.addEventListener('click', goBack);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.querySelector('.modal-overlay.open')) return;
+  goBack();
+});
 
 addKeyToggle.addEventListener('click', () => {
   addKeyForm.classList.add('open');
@@ -613,7 +693,6 @@ addKeyToggle.addEventListener('click', () => {
 newKeyCancel.addEventListener('click', () => {
   newKeyName.value = '';
   newKeyValue.value = '';
-  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
 });
 
@@ -632,10 +711,117 @@ newKeySave.addEventListener('click', () => {
   render();
   newKeyName.value = '';
   newKeyValue.value = '';
-  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
   saveStatus.textContent = 'Saved.';
   setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+});
+
+const aiKeyRow = document.getElementById('aiKeyRow');
+const aiKeyMasked = document.getElementById('aiKeyMasked');
+const aiKeyRemove = document.getElementById('aiKeyRemove');
+const aiEmptyHint = document.getElementById('aiEmptyHint');
+const aiKeyValue = document.getElementById('aiKeyValue');
+const aiKeySave = document.getElementById('aiKeySave');
+const aiKeyName = document.getElementById('aiKeyName');
+const aiProvider = document.getElementById('aiProvider');
+const aiModel = document.getElementById('aiModel');
+const aiDetectHint = document.getElementById('aiDetectHint');
+const aiInfoBtn = document.getElementById('aiInfoBtn');
+const aiInfoModal = document.getElementById('aiInfoModal');
+const aiInfoClose = document.getElementById('aiInfoClose');
+
+function flashStatus(msg) {
+  saveStatus.textContent = msg;
+  setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+}
+
+const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini', groq: 'Groq' };
+
+// Mirrors ai_client.detect_provider on the server.
+function detectProvider(key) {
+  if (key.startsWith('sk-ant-')) return 'anthropic';
+  if (key.startsWith('gsk_')) return 'groq';
+  if (key.startsWith('AIza')) return 'gemini';
+  if (key.startsWith('sk-')) return 'openai';
+  return null;
+}
+
+// Stored as JSON {provider, key, model}; an older plain-string value is a Groq key.
+function loadAiKey() {
+  let raw = null;
+  try { raw = localStorage.getItem(AI_KEY_STORAGE); } catch (err) {}
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.key) return parsed;
+  } catch (err) {}
+  return { provider: detectProvider(raw) || 'groq', key: raw, model: '' };
+}
+
+function renderAiKey() {
+  const saved = loadAiKey();
+  aiKeyRow.style.display = saved ? 'flex' : 'none';
+  aiEmptyHint.style.display = saved ? 'none' : 'block';
+  if (saved) {
+    aiKeyName.textContent = 'Your ' + (PROVIDER_LABELS[saved.provider] || saved.provider) + ' key';
+    aiKeyMasked.textContent = maskValue(saved.key) + (saved.model ? ' · ' + saved.model : '');
+  }
+}
+
+function updateDetectHint() {
+  const key = aiKeyValue.value.trim();
+  if (!key || aiProvider.value) {
+    aiDetectHint.style.display = 'none';
+    return;
+  }
+  const detected = detectProvider(key);
+  aiDetectHint.textContent = detected
+    ? 'Detected: ' + PROVIDER_LABELS[detected] + ' key.'
+    : "Couldn't tell which provider this key is from — pick one from the list.";
+  aiDetectHint.style.display = 'block';
+}
+aiKeyValue.addEventListener('input', updateDetectHint);
+aiProvider.addEventListener('change', updateDetectHint);
+
+aiKeySave.addEventListener('click', () => {
+  const key = aiKeyValue.value.trim();
+  if (!key) {
+    flashStatus('Paste your AI API key first.');
+    return;
+  }
+  const provider = aiProvider.value || detectProvider(key);
+  if (!provider) {
+    flashStatus('Pick which provider this key is from.');
+    aiProvider.focus();
+    return;
+  }
+  try {
+    localStorage.setItem(AI_KEY_STORAGE, JSON.stringify({ provider, key, model: aiModel.value.trim() }));
+  } catch (err) {
+    flashStatus('Could not save (browser storage unavailable).');
+    return;
+  }
+  aiKeyValue.value = '';
+  aiModel.value = '';
+  aiProvider.value = '';
+  updateDetectHint();
+  renderAiKey();
+  flashStatus(PROVIDER_LABELS[provider] + ' key saved.');
+});
+[aiKeyValue, aiModel].forEach((el) => el.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') aiKeySave.click();
+}));
+
+aiKeyRemove.addEventListener('click', () => {
+  try { localStorage.removeItem(AI_KEY_STORAGE); } catch (err) {}
+  renderAiKey();
+  flashStatus('AI key removed — using the shared key.');
+});
+
+aiInfoBtn.addEventListener('click', () => aiInfoModal.classList.add('open'));
+aiInfoClose.addEventListener('click', () => aiInfoModal.classList.remove('open'));
+aiInfoModal.addEventListener('click', (e) => {
+  if (e.target === aiInfoModal) aiInfoModal.classList.remove('open');
 });
 
 figmaInfoBtn.addEventListener('click', () => figmaInfoModal.classList.add('open'));
@@ -646,6 +832,7 @@ figmaInfoModal.addEventListener('click', (e) => {
 
 load();
 render();
+renderAiKey();
 renderDisplayControls();
 </script>
 </body>

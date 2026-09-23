@@ -6,13 +6,14 @@ specialists (UI/UX, Graphic Design, Product Design, Interaction Design), the
 synthesis pass that merges their findings into one report, and a
 localization pass that grounds each numbered finding in a region of the
 image so `screenshot_annotator` has something to draw. Every step is a
-Groq vision-model call via `groq_client.call_groq_chat`.
+vision-model call via `ai_client.call_ai_chat`, on whichever AI provider the
+visitor's key belongs to.
 """
 import json
 import logging
 import re
 
-from groq_client import call_groq_chat
+from ai_client import call_ai_chat
 
 _default_logger = logging.getLogger(__name__)
 
@@ -522,7 +523,7 @@ def replace_annotated_screenshots_section(numbered_text, note):
     return before + new_section + after
 
 
-def run_understanding_pass(api_key, context_block, data_url, logger=None):
+def run_understanding_pass(ai, context_block, data_url, logger=None):
     """One shared, factual read of the design before any specialist critiques it,
     so specialists don't each have to rediscover the basics, and so the
     orchestrator can decide which disciplines are actually relevant."""
@@ -536,10 +537,10 @@ def run_understanding_pass(api_key, context_block, data_url, logger=None):
             ],
         },
     ]
-    return call_groq_chat(api_key, messages, max_completion_tokens=400, logger=logger)
+    return call_ai_chat(ai, messages, max_completion_tokens=400, logger=logger)
 
 
-def run_discipline_agent(label, system_prompt, api_key, user_text, data_url, logger=None):
+def run_discipline_agent(label, system_prompt, ai, user_text, data_url, logger=None):
     """Run one independent discipline critic against the image. Returns
     (label, reply_text_or_None, error_or_None)."""
     messages = [
@@ -552,14 +553,14 @@ def run_discipline_agent(label, system_prompt, api_key, user_text, data_url, log
             ],
         },
     ]
-    text, err = call_groq_chat(api_key, messages, max_completion_tokens=600, logger=logger)
+    text, err = call_ai_chat(ai, messages, max_completion_tokens=600, logger=logger)
     return label, text, err
 
 
-def run_synthesis_pass(api_key, synthesis_user_text, logger=None):
+def run_synthesis_pass(ai, synthesis_user_text, logger=None):
     """Compare the independent critiques and synthesize one final report."""
-    return call_groq_chat(
-        api_key,
+    return call_ai_chat(
+        ai,
         [
             {"role": "system", "content": SYNTHESIS_PROMPT},
             {"role": "user", "content": synthesis_user_text},
@@ -569,7 +570,7 @@ def run_synthesis_pass(api_key, synthesis_user_text, logger=None):
     )
 
 
-def run_localization_pass(api_key, data_url, findings, logger=None):
+def run_localization_pass(ai, data_url, findings, logger=None):
     """Given the numbered findings from `number_key_findings`, ask the vision
     model which ones tie to a visible region and where. Returns [] (never
     raises) on any failure or when there's nothing to localize — annotation
@@ -588,7 +589,7 @@ def run_localization_pass(api_key, data_url, findings, logger=None):
             ],
         },
     ]
-    text, err = call_groq_chat(api_key, messages, max_completion_tokens=500, logger=logger)
+    text, err = call_ai_chat(ai, messages, max_completion_tokens=500, logger=logger)
     if err:
         (logger or _default_logger).warning("localization pass failed: %s", err)
         return []

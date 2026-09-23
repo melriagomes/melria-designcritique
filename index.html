@@ -280,6 +280,17 @@
   #sendBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 
   .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.375rem; }
+
+  #settingsOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: var(--bg);
+  }
+  #settingsOverlay.open { display: block; }
+  #settingsFrame { width: 100%; height: 100%; border: 0; display: block; }
+  body.settings-open { overflow: hidden; }
 </style>
 </head>
 <body>
@@ -327,6 +338,10 @@
   </div>
 </div>
 
+<div id="settingsOverlay" role="dialog" aria-modal="true" aria-label="Settings">
+  <iframe id="settingsFrame" title="Settings"></iframe>
+</div>
+
 <script>
 const messagesEl = document.getElementById('messages');
 const tabImage = document.getElementById('tabImage');
@@ -349,10 +364,65 @@ const settingsBtn = document.getElementById('settingsBtn');
 
 const API_KEYS_STORAGE = 'designCritiqueApiKeys';
 const ACTIVE_KEY_ID_STORAGE = 'designCritiqueActiveApiKeyId';
+const AI_KEY_STORAGE = 'designCritiqueAiApiKey';
 
-settingsBtn.addEventListener('click', () => {
-  window.location.href = '/settings';
+// Settings opens in an overlay (an iframe of /settings) rather than
+// navigating away, so a critique that's still running keeps going — leaving
+// this page would abort the in-flight request and drop the chat.
+const settingsOverlay = document.getElementById('settingsOverlay');
+const settingsFrame = document.getElementById('settingsFrame');
+
+function applyDisplayPrefs() {
+  try {
+    const theme = localStorage.getItem('designCritiqueTheme') || 'system';
+    const resolved = (theme === 'dark' || theme === 'light') ? theme :
+      ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', resolved);
+    document.documentElement.style.fontSize = (localStorage.getItem('designCritiqueScale') || '100') + '%';
+  } catch (err) {}
+}
+
+function openSettings() {
+  settingsFrame.src = '/settings?embedded=1'; // fresh load each time so it shows current keys
+  settingsOverlay.classList.add('open');
+  document.body.classList.add('settings-open');
+  settingsFrame.focus();
+}
+
+function closeSettings() {
+  settingsOverlay.classList.remove('open');
+  document.body.classList.remove('settings-open');
+  applyDisplayPrefs();
+  settingsBtn.focus();
+}
+
+settingsBtn.addEventListener('click', openSettings);
+
+window.addEventListener('message', (e) => {
+  if (e.origin === window.location.origin && e.data && e.data.type === 'closeSettings') closeSettings();
 });
+
+// Theme / text-size changes made in the Settings overlay apply here live.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'designCritiqueTheme' || e.key === 'designCritiqueScale') applyDisplayPrefs();
+});
+
+// Returns the visitor's own AI key from Settings as {provider, key, model},
+// or null to use the server's shared key. An older plain-string value is a
+// bare key; the server then detects its provider from the prefix.
+function getAiKeyConfig() {
+  try {
+    const raw = localStorage.getItem(AI_KEY_STORAGE);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.key) return parsed;
+    } catch (err) {}
+    return { provider: '', key: raw, model: '' };
+  } catch (err) {
+    return null;
+  }
+}
 
 // Returns the value of whichever saved key is marked active in Settings, or
 // null if none is set — matches the list settings.html manages.
@@ -545,13 +615,21 @@ sendBtn.addEventListener('click', async () => {
   if (audience) formData.append('audience', audience);
   if (goals) formData.append('goals', goals);
 
-  // Attach whichever key this visitor marked active in Settings, if any —
-  // used to authenticate the URL fetch (Figma token for figma.com links,
-  // bearer token for anything else). Falls back to the server's shared
-  // Figma token when absent, and to no auth for other URLs — same as before
-  // for anyone who hasn't saved a key.
+  // Attach whichever Figma key this visitor marked active in Settings, if
+  // any — only used for figma.com links. Falls back to the server's shared
+  // Figma token when absent.
   const activeKey = getActiveApiKeyValue();
   if (activeKey) formData.append('access_token', activeKey);
+
+  // Attach the visitor's own AI key (Anthropic, OpenAI, Gemini, or Groq), if
+  // set — the server uses it instead of its shared GROQ_API_KEY for this
+  // request only.
+  const aiKey = getAiKeyConfig();
+  if (aiKey) {
+    formData.append('ai_api_key', aiKey.key);
+    if (aiKey.provider) formData.append('ai_provider', aiKey.provider);
+    if (aiKey.model) formData.append('ai_model', aiKey.model);
+  }
 
   // Reset composer for the next turn.
   const usedFile = selectedFile;
