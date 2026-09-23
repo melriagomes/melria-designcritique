@@ -233,6 +233,21 @@
     color: var(--text);
   }
   #addKeyForm input:focus { outline: none; border-color: var(--accent); }
+
+  .ai-key-form { display: flex; gap: 0.5rem; }
+  .ai-key-form input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .ai-key-form input:focus { outline: none; border-color: var(--accent); }
+  .modal a { color: var(--accent-text); }
   .add-key-actions { display: flex; gap: 0.5rem; }
 
   #addKeyToggle {
@@ -364,17 +379,16 @@
     <button id="backBtn" type="button" title="Back" aria-label="Back to chat"><span class="material-symbols-outlined">arrow_back</span></button>
     <div>
       <h1>Settings</h1>
-      <p>Add your own API keys and pick which one to use.</p>
+      <p>Add your own AI and Figma API keys.</p>
     </div>
   </header>
 
   <main>
     <div class="note-box">
       Keys are saved only in this browser and sent to this app's own server just for the request
-      you're making. Add one key per site or service, then mark one <strong>active</strong> —
-      that's the one used the next time you paste a URL. A figma.com link uses the active key as a
-      Figma access token; any other URL sends it as a standard Authorization bearer token, so it
-      works for your own site or API too.
+      you're making. Your <strong>AI API key</strong> runs critiques on your own Groq account
+      instead of the app's shared one. <strong>Figma API keys</strong> are only used for figma.com
+      links — mark one <strong>active</strong> and it's used the next time you paste one.
     </div>
 
     <div class="section-head">
@@ -408,20 +422,37 @@
     </div>
 
     <div class="section-head">
-      <h2>Your API keys</h2>
+      <h2>AI API key</h2>
+      <button type="button" class="info-btn" id="aiInfoBtn" title="How to get a Groq API key" aria-label="How to get a Groq API key"><span class="material-symbols-outlined">info</span></button>
+    </div>
+
+    <div class="key-row active" id="aiKeyRow" style="display:none;">
+      <div class="key-info">
+        <div class="key-name">Your Groq key</div>
+        <div class="key-value" id="aiKeyMasked"></div>
+      </div>
+      <button type="button" class="key-remove" id="aiKeyRemove">Remove</button>
+    </div>
+    <div class="empty-hint" id="aiEmptyHint">Using this app's shared AI key. Add your own to run critiques on your Groq account.</div>
+
+    <div class="ai-key-form">
+      <input type="password" id="aiKeyValue" placeholder="Groq API key (gsk_…)" autocomplete="off" aria-label="Groq API key">
+      <button type="button" class="btn-primary" id="aiKeySave">Save</button>
+    </div>
+
+    <div class="section-head">
+      <h2>Figma API keys</h2>
+      <button type="button" class="info-btn" id="figmaInfoBtn" title="How to get a Figma personal access token" aria-label="How to get a Figma personal access token"><span class="material-symbols-outlined">info</span></button>
     </div>
 
     <div id="keyList"></div>
-    <div class="empty-hint" id="emptyHint" style="display:none;">No keys saved yet. Add one below.</div>
+    <div class="empty-hint" id="emptyHint" style="display:none;">No Figma keys saved yet — figma.com links use the app's shared token. Add one below.</div>
 
-    <button type="button" id="addKeyToggle"><span class="material-symbols-outlined">add</span> Add a key</button>
+    <button type="button" id="addKeyToggle"><span class="material-symbols-outlined">add</span> Add a Figma key</button>
 
     <div id="addKeyForm">
-      <div class="name-row">
-        <input type="text" id="newKeyName" placeholder="Name (e.g. Figma, My website API)">
-        <button type="button" class="warn-btn" id="figmaInfoBtn" title="Required permissions for a Figma token" aria-label="Required permissions for a Figma token"><span class="material-symbols-outlined">warning</span></button>
-      </div>
-      <input type="password" id="newKeyValue" placeholder="Key or token value" autocomplete="off">
+      <input type="text" id="newKeyName" placeholder="Name (e.g. Personal, Work)">
+      <input type="password" id="newKeyValue" placeholder="Figma personal access token (figd_…)" autocomplete="off">
       <div class="add-key-actions">
         <button type="button" class="btn-primary" id="newKeySave">Save key</button>
         <button type="button" class="btn-secondary" id="newKeyCancel">Cancel</button>
@@ -430,6 +461,23 @@
 
     <span id="saveStatus"></span>
   </main>
+</div>
+
+<div class="modal-overlay" id="aiInfoModal">
+  <div class="modal">
+    <h2>Getting a Groq API key</h2>
+    <ol>
+      <li>Go to <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> and sign in (a free account works).</li>
+      <li>Click <strong>Create API Key</strong> and give it a name (e.g. "Design Critique Agent").</li>
+      <li>Copy the key right away — it starts with <strong>gsk_</strong> and Groq only shows it once.</li>
+      <li>Paste it into the AI API key field and click <strong>Save</strong>. Critiques from this browser then run on your Groq account and quota.</li>
+    </ol>
+    <p>Remove it any time to go back to the app's shared key.</p>
+    <p>Treat this key like a password — anyone with it can use your Groq account.</p>
+    <div class="modal-close-row">
+      <button id="aiInfoClose" type="button">Got it</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="figmaInfoModal">
@@ -444,7 +492,7 @@
       <li><em>Optional:</em> <strong>Current user — Read only</strong> is not required for critiques; it's only used by this app's diagnostics to confirm which account a token belongs to.</li>
       <li>Click <strong>Generate token</strong> and copy it immediately — Figma only shows it once. Add it below as a new key (name it something like "Figma") and mark it active.</li>
     </ol>
-    <p>This is only for Figma links. For any other website, add its API key the same way — it'll be sent as a standard bearer token when you paste that site's URL.</p>
+    <p>This token is only ever sent to Figma, for figma.com links.</p>
     <p>Treat every key here like a password — anyone with it can access whatever it's scoped to.</p>
     <div class="modal-close-row">
       <button id="figmaInfoClose" type="button">Got it</button>
@@ -457,6 +505,7 @@ const KEYS_STORAGE = 'designCritiqueApiKeys';
 const ACTIVE_ID_STORAGE = 'designCritiqueActiveApiKeyId';
 const THEME_STORAGE = 'designCritiqueTheme';
 const SCALE_STORAGE = 'designCritiqueScale';
+const AI_KEY_STORAGE = 'designCritiqueAiApiKey';
 
 const themeControl = document.getElementById('themeControl');
 const scaleControl = document.getElementById('scaleControl');
@@ -596,14 +645,18 @@ function render() {
   });
 }
 
-backBtn.addEventListener('click', () => {
-  window.location.href = '/';
-});
-
-function updateFigmaWarnVisibility() {
-  figmaInfoBtn.classList.toggle('show', newKeyName.value.toLowerCase().includes('figma'));
+// When opened as the chat page's overlay, "back" just closes the overlay so
+// any critique still running there keeps going; opened directly, it navigates.
+const isEmbedded = window.parent !== window;
+function goBack() {
+  if (isEmbedded) window.parent.postMessage({ type: 'closeSettings' }, window.location.origin);
+  else window.location.href = '/';
 }
-newKeyName.addEventListener('input', updateFigmaWarnVisibility);
+backBtn.addEventListener('click', goBack);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.querySelector('.modal-overlay.open')) return;
+  goBack();
+});
 
 addKeyToggle.addEventListener('click', () => {
   addKeyForm.classList.add('open');
@@ -613,7 +666,6 @@ addKeyToggle.addEventListener('click', () => {
 newKeyCancel.addEventListener('click', () => {
   newKeyName.value = '';
   newKeyValue.value = '';
-  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
 });
 
@@ -632,10 +684,64 @@ newKeySave.addEventListener('click', () => {
   render();
   newKeyName.value = '';
   newKeyValue.value = '';
-  updateFigmaWarnVisibility();
   addKeyForm.classList.remove('open');
   saveStatus.textContent = 'Saved.';
   setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+});
+
+const aiKeyRow = document.getElementById('aiKeyRow');
+const aiKeyMasked = document.getElementById('aiKeyMasked');
+const aiKeyRemove = document.getElementById('aiKeyRemove');
+const aiEmptyHint = document.getElementById('aiEmptyHint');
+const aiKeyValue = document.getElementById('aiKeyValue');
+const aiKeySave = document.getElementById('aiKeySave');
+const aiInfoBtn = document.getElementById('aiInfoBtn');
+const aiInfoModal = document.getElementById('aiInfoModal');
+const aiInfoClose = document.getElementById('aiInfoClose');
+
+function flashStatus(msg) {
+  saveStatus.textContent = msg;
+  setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+}
+
+function renderAiKey() {
+  let value = null;
+  try { value = localStorage.getItem(AI_KEY_STORAGE); } catch (err) {}
+  aiKeyRow.style.display = value ? 'flex' : 'none';
+  aiEmptyHint.style.display = value ? 'none' : 'block';
+  if (value) aiKeyMasked.textContent = maskValue(value);
+}
+
+aiKeySave.addEventListener('click', () => {
+  const value = aiKeyValue.value.trim();
+  if (!value) {
+    flashStatus('Paste your Groq API key first.');
+    return;
+  }
+  try {
+    localStorage.setItem(AI_KEY_STORAGE, value);
+  } catch (err) {
+    flashStatus('Could not save (browser storage unavailable).');
+    return;
+  }
+  aiKeyValue.value = '';
+  renderAiKey();
+  flashStatus('AI key saved.');
+});
+aiKeyValue.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') aiKeySave.click();
+});
+
+aiKeyRemove.addEventListener('click', () => {
+  try { localStorage.removeItem(AI_KEY_STORAGE); } catch (err) {}
+  renderAiKey();
+  flashStatus('AI key removed — using the shared key.');
+});
+
+aiInfoBtn.addEventListener('click', () => aiInfoModal.classList.add('open'));
+aiInfoClose.addEventListener('click', () => aiInfoModal.classList.remove('open'));
+aiInfoModal.addEventListener('click', (e) => {
+  if (e.target === aiInfoModal) aiInfoModal.classList.remove('open');
 });
 
 figmaInfoBtn.addEventListener('click', () => figmaInfoModal.classList.add('open'));
@@ -646,6 +752,7 @@ figmaInfoModal.addEventListener('click', (e) => {
 
 load();
 render();
+renderAiKey();
 renderDisplayControls();
 </script>
 </body>

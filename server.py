@@ -36,13 +36,17 @@ app.config["MAX_CONTENT_LENGTH"] = design_reader.MAX_UPLOAD_BYTES + 1024 * 1024 
 app.logger.setLevel(logging.INFO)
 
 
-def get_api_key():
-    """Return the app's own Groq API key. This runs the critique model itself,
-    so it's the app's infrastructure credential — not something visitors supply."""
-    api_key = os.environ.get("GROQ_API_KEY")
+def get_api_key(override=None):
+    """Return the Groq API key to run the critique model with.
+
+    `override` is the visitor's own AI key from the Settings page (sent with
+    the request, never stored server-side); without one, the app's shared
+    GROQ_API_KEY is used."""
+    api_key = override or os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GROQ_API_KEY is not set. Add it to the .env file in the project root and restart the server."
+            "No AI API key is available. Add your own Groq API key in Settings, or set GROQ_API_KEY "
+            "in the .env file in the project root and restart the server."
         )
     return api_key
 
@@ -126,11 +130,14 @@ def critique():
     note = (request.form.get("note") or "").strip()
     audience = (request.form.get("audience") or "").strip()
     goals = (request.form.get("goals") or "").strip()
-    # The visitor's currently-active key from the Settings page (browser
+    # The visitor's currently-active Figma key from the Settings page (browser
     # localStorage), sent with this request only and never written to disk
     # server-side. Empty means "not set" — Figma URLs then fall back to the
-    # shared .env token, and other URLs are fetched unauthenticated.
+    # shared .env token.
     access_token_override = (request.form.get("access_token") or "").strip() or None
+    # The visitor's own AI (Groq) key from Settings, handled the same way.
+    # Empty means "use the shared GROQ_API_KEY".
+    ai_api_key_override = (request.form.get("ai_api_key") or "").strip() or None
 
     has_image = image_file is not None and image_file.filename
     has_url = bool(url)
@@ -152,7 +159,7 @@ def critique():
         return error_response(err)
 
     try:
-        api_key = get_api_key()
+        api_key = get_api_key(ai_api_key_override)
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
 

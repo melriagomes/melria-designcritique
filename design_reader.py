@@ -87,17 +87,13 @@ def resolve_uploaded_image(file_storage):
 
 
 def resolve_url_to_image(url, access_token_override=None, logger=None):
-    """Resolve any pasted URL to an image, using `access_token_override` (the
-    visitor's currently-active Settings key) to authenticate the fetch when
-    the target needs it.
+    """Resolve any pasted URL to an image.
 
-    A figma.com link uses that key exactly as before — sent as the
-    `X-Figma-Token` header to Figma's REST API (via `figma_reader`). Any
-    other URL sends it as a standard `Authorization: Bearer <token>` header
-    on the direct fetch and the page render, so a visitor's own protected
-    site (or any API requiring bearer-token auth) works the same way a
-    public one does. When no key is set, requests go out unauthenticated
-    exactly as before.
+    `access_token_override` is the visitor's currently-active Figma key from
+    Settings. It's only used for figma.com links — sent as the
+    `X-Figma-Token` header to Figma's REST API (via `figma_reader`). Every
+    other URL is fetched unauthenticated, so a Figma token is never handed
+    to a third-party site.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -110,8 +106,6 @@ def resolve_url_to_image(url, access_token_override=None, logger=None):
         )
 
     headers = {"User-Agent": "Mozilla/5.0 (design-critique-agent)"}
-    if access_token_override:
-        headers["Authorization"] = f"Bearer {access_token_override}"
 
     try:
         resp = requests.get(
@@ -144,8 +138,6 @@ def resolve_url_to_image(url, access_token_override=None, logger=None):
             browser = pw.chromium.launch()
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
-                if access_token_override:
-                    page.set_extra_http_headers({"Authorization": f"Bearer {access_token_override}"})
                 page.goto(url, wait_until="load", timeout=PAGE_LOAD_TIMEOUT_MS)
                 screenshot = page.screenshot(full_page=True, type="png")
             finally:

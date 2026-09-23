@@ -91,7 +91,7 @@ def classify_figma_error(status_code, detail=None, used_own_token=False):
                 "This app's shared Figma token can't access this file (HTTP 403) — expected for any file "
                 "it doesn't own, since a Figma token only sees what its owning account can see. To "
                 "critique your own Figma file, open Settings, add your own Figma personal access token "
-                "(tap the ⓘ next to \"Your API keys\" for how), mark it active, then paste the link again."
+                "(tap the ⓘ next to \"Figma API keys\" for how), mark it active, then paste the link again."
             )
     elif status_code == 404:
         label = "not_found"
