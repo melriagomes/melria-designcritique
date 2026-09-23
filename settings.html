@@ -17,39 +17,42 @@
 })();
 </script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root {
-    --bg: #FFF1F1;
+    --bg: #EEEBE2;
     --panel: #ffffff;
-    --panel-soft: #FBEBFE;
-    --border: #F1D6F8;
-    --text: #3B0270;
-    --muted: #8B6BA8;
-    --accent: #6F00FF;
-    --accent-text: #6F00FF;
-    --accent-hover: #5c00d1;
-    --accent-soft: #E9B3FB;
+    --panel-soft: #F4F1E9;
+    --border: #D8D2C0;
+    --text: #1D1B16;
+    --muted: #746B58;
+    --structure: #2F5D6B;
+    --accent: #C62828;
+    --accent-text: #B71C1C;
+    --accent-hover: #A31F1F;
+    --accent-soft: #F4D9D6;
     --accent-ink: #ffffff;
-    --success: #1a7f37;
+    --success: #1F7A3D;
     --warn-border: #f5a623;
     --warn-bg: #fff4e5;
     --warn-text: #b45309;
   }
-  /* Dark palette derived from the same brand colors, tuned to meet WCAG AA
-     contrast (>=4.5:1 for body text, >=3:1 for large text/UI boundaries)
-     against the dark backgrounds below. */
+  /* Dark palette derived from the same warm-ink/crit-red system, tuned to
+     meet WCAG AA contrast (>=4.5:1 body text, >=3:1 large text/UI edges). */
   :root[data-theme="dark"] {
-    --bg: #1B0430;
-    --panel: #241040;
-    --panel-soft: #2E1550;
-    --border: #4A2470;
-    --text: #F3E9FB;
-    --muted: #C9AEDD;
-    --accent: #8A2BFF;
-    --accent-text: #C89CFF;
-    --accent-hover: #7A22E6;
-    --accent-soft: #5A2F86;
-    --accent-ink: #ffffff;
+    --bg: #17140F;
+    --panel: #201C15;
+    --panel-soft: #262019;
+    --border: #3C3527;
+    --text: #F1ECDE;
+    --muted: #B3A98C;
+    --structure: #7FB8C7;
+    --accent: #FF6B58;
+    --accent-text: #FF8A78;
+    --accent-hover: #FF8A78;
+    --accent-soft: #4A2620;
+    --accent-ink: #1A0E0B;
     --success: #6fe08a;
     --warn-border: #f5a623;
     --warn-bg: #4a2e0a;
@@ -66,7 +69,7 @@
   }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -84,9 +87,9 @@
     .app {
       min-height: 0;
       margin: 0 auto;
-      border-radius: 22px;
+      border-radius: 10px;
       border: 1px solid var(--border);
-      box-shadow: 0 12px 40px rgba(59, 2, 112, 0.10);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
       overflow: hidden;
     }
   }
@@ -109,8 +112,8 @@
     flex-shrink: 0;
     display: inline-flex;
   }
-  #backBtn:hover { background: var(--accent-soft); color: var(--text); }
-  header h1 { font-size: 1.125rem; margin: 0; }
+  #backBtn:hover { background: var(--accent-soft); color: var(--accent-text); }
+  header h1 { font-size: 1.125rem; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   header p { margin: 0.1875rem 0 0; font-size: 0.845rem; color: var(--muted); }
 
   main {
@@ -125,7 +128,7 @@
     color: var(--muted);
     background: var(--panel-soft);
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.75rem 0.875rem;
     line-height: 1.5;
   }
@@ -136,7 +139,7 @@
     align-items: center;
     gap: 0.375rem;
   }
-  .section-head h2 { font-size: 0.90625rem; margin: 0; color: var(--text); }
+  .section-head h2 { font-size: 0.90625rem; margin: 0; color: var(--text); font-weight: 600; }
 
   .info-btn {
     border: 1px solid var(--border);
@@ -198,14 +201,14 @@
     align-items: center;
     gap: 0.625rem;
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     padding: 0.75rem 0.875rem;
   }
   .key-row.active { border-color: var(--accent); background: var(--panel-soft); }
   .key-row input[type="radio"] { flex-shrink: 0; cursor: pointer; accent-color: var(--accent); }
   .key-row .key-info { flex: 1; min-width: 0; }
   .key-row .key-name { font-size: 0.845rem; font-weight: 600; color: var(--text); }
-  .key-row .key-value { font-size: 0.78125rem; color: var(--muted); font-family: monospace; }
+  .key-row .key-value { font-size: 0.78125rem; color: var(--muted); font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .key-row .key-remove {
     border: none; background: none; color: var(--muted); cursor: pointer;
     font-size: 0.78125rem; text-decoration: underline; flex-shrink: 0;
@@ -216,16 +219,16 @@
     display: none;
     flex-direction: column;
     gap: 0.625rem;
-    border: 1px dashed var(--accent-soft);
+    border: 1px dashed var(--border);
     background: var(--panel-soft);
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     padding: 0.875rem;
     margin-top: 0.25rem;
   }
   #addKeyForm.open { display: flex; }
   #addKeyForm input {
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.625rem 0.75rem;
     font-size: 0.875rem;
     font-family: inherit;
@@ -239,7 +242,7 @@
     flex: 1;
     min-width: 0;
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.625rem 0.75rem;
     font-size: 0.875rem;
     font-family: inherit;
@@ -248,7 +251,7 @@
   }
   .ai-key-form select {
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.625rem 0.5rem;
     font-size: 0.875rem;
     font-family: inherit;
@@ -270,20 +273,21 @@
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    border: 1px dashed var(--accent-soft);
+    border: 1px dashed var(--border);
     background: var(--panel-soft);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.5625rem 0.875rem;
     font-size: 0.845rem;
     cursor: pointer;
     color: var(--text);
   }
+  #addKeyToggle:hover { border-color: var(--structure); }
 
   .btn-primary {
     background: var(--accent);
-    color: white;
+    color: var(--accent-ink);
     border: none;
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.625rem 1.25rem;
     font-size: 0.875rem;
     font-weight: 600;
@@ -293,7 +297,7 @@
   .btn-secondary {
     border: 1px solid var(--border);
     background: var(--panel);
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.625rem 1rem;
     font-size: 0.8125rem;
     cursor: pointer;
@@ -326,7 +330,7 @@
     display: inline-flex;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 0.625rem;
+    border-radius: 999px;
     padding: 0.1875rem;
   }
   .segmented button {
@@ -337,7 +341,7 @@
     background: transparent;
     padding: 0.4375rem 0.875rem;
     font-size: 0.8125rem;
-    border-radius: 0.5rem;
+    border-radius: 999px;
     cursor: pointer;
     color: var(--muted);
     font-family: inherit;
@@ -345,7 +349,7 @@
   .segmented button.active {
     background: var(--panel);
     color: var(--accent-text);
-    box-shadow: 0 1px 3px rgba(59,2,112,0.12);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     font-weight: 600;
   }
 
@@ -363,7 +367,7 @@
   .modal-overlay.open { display: flex; }
   .modal {
     background: var(--panel);
-    border-radius: 1rem;
+    border-radius: 0.625rem;
     max-width: 27.5rem;
     width: 100%;
     max-height: 85vh;
@@ -378,9 +382,9 @@
   .modal-close-row { display: flex; justify-content: flex-end; }
   .modal-close-row button {
     background: var(--accent);
-    color: white;
+    color: var(--accent-ink);
     border: none;
-    border-radius: 0.625rem;
+    border-radius: 0.375rem;
     padding: 0.5625rem 1.125rem;
     font-size: 0.8125rem;
     font-weight: 600;
