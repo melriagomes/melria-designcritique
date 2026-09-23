@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 
+import ai_client
 import design_reader
 import evidence_reporting
 import figma_reader
@@ -36,19 +37,28 @@ app.config["MAX_CONTENT_LENGTH"] = design_reader.MAX_UPLOAD_BYTES + 1024 * 1024 
 app.logger.setLevel(logging.INFO)
 
 
-def get_api_key(override=None):
-    """Return the Groq API key to run the critique model with.
+def get_ai_config(key_override=None, provider_override=None, model_override=None):
+    """Return the AIConfig (provider, key, model) to run the critique with.
 
-    `override` is the visitor's own AI key from the Settings page (sent with
-    the request, never stored server-side); without one, the app's shared
-    GROQ_API_KEY is used."""
-    api_key = override or os.environ.get("GROQ_API_KEY")
+    The overrides are the visitor's own AI key, provider, and optional model
+    from the Settings page (sent with the request, never stored server-side);
+    the key can be from Anthropic, OpenAI, Gemini, or Groq. Without a key,
+    the app's shared GROQ_API_KEY is used. Raises RuntimeError with a
+    user-facing message when neither is available or the key can't be
+    matched to a provider."""
+    if key_override:
+        try:
+            return ai_client.build_ai_config(key_override, provider_override, model_override)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "No AI API key is available. Add your own Groq API key in Settings, or set GROQ_API_KEY "
-            "in the .env file in the project root and restart the server."
+            "No AI API key is available. Add your own AI API key (Anthropic, OpenAI, Gemini, or Groq) "
+            "in Settings, or set GROQ_API_KEY in the .env file in the project root and restart the server."
         )
-    return api_key
+    return ai_client.build_ai_config(api_key, "groq")
 
 
 def get_figma_token(override=None):
@@ -135,9 +145,11 @@ def critique():
     # server-side. Empty means "not set" — Figma URLs then fall back to the
     # shared .env token.
     access_token_override = (request.form.get("access_token") or "").strip() or None
-    # The visitor's own AI (Groq) key from Settings, handled the same way.
-    # Empty means "use the shared GROQ_API_KEY".
+    # The visitor's own AI key (plus its provider and optional model) from
+    # Settings, handled the same way. Empty means "use the shared GROQ_API_KEY".
     ai_api_key_override = (request.form.get("ai_api_key") or "").strip() or None
+    ai_provider_override = (request.form.get("ai_provider") or "").strip() or None
+    ai_model_override = (request.form.get("ai_model") or "").strip() or None
 
     has_image = image_file is not None and image_file.filename
     has_url = bool(url)
@@ -159,11 +171,12 @@ def critique():
         return error_response(err)
 
     try:
-        api_key = get_api_key(ai_api_key_override)
+        ai = get_ai_config(ai_api_key_override, ai_provider_override, ai_model_override)
     except RuntimeError as exc:
         return error_response(str(exc), status=500)
+    app.logger.info("running critique on %s (%s)", ai.provider, ai.model)
 
-    image_bytes, mime = design_reader.downscale_for_groq(image_bytes, mime, logger=app.logger)
+    image_bytes, mime = design_reader.downscale_for_provider(image_bytes, mime, ai.provider, logger=app.logger)
     data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
     context_block = design_reader.build_context_block(audience, goals, note)
@@ -173,7 +186,7 @@ def critique():
     # specialist must weigh in) so specialists don't each have to rediscover
     # the design from scratch.
     understanding_raw, understanding_err = evidence_reporting.run_understanding_pass(
-        api_key, context_block, data_url, logger=app.logger
+        ai, context_block, data_url, logger=app.logger
     )
     if understanding_err:
         # The understanding pass is a focus/coverage optimization, not a hard
@@ -190,11 +203,11 @@ def critique():
     # --- Evidence & Reporting: independent discipline specialists -----------
     # Delegate to only the relevant discipline agents, each independently (none
     # sees another's output). Run sequentially rather than in parallel: this
-    # endpoint now makes up to 7 Groq calls per critique (1 understanding pass +
+    # endpoint now makes up to 7 AI calls per critique (1 understanding pass +
     # up to 4 agents + 1 synthesis + 1 localization) instead of 1, and
-    # on-demand/free-tier Groq accounts have a fairly tight per-minute token
+    # on-demand/free-tier accounts (Groq's especially) have a fairly tight per-minute token
     # quota — concurrent image-bearing calls reliably burst past it, where
-    # sequential calls (plus the rate-limit retry in call_groq_chat) naturally
+    # sequential calls (plus the rate-limit retry in ai_client) naturally
     # spread the load and recover.
     agents = [
         (label, evidence_reporting.DISCIPLINE_PROMPTS[label])
@@ -206,7 +219,7 @@ def critique():
     failures = {}
     for label, prompt in agents:
         _, text, err = evidence_reporting.run_discipline_agent(
-            label, prompt, api_key, agent_user_text, data_url, logger=app.logger
+            label, prompt, ai, agent_user_text, data_url, logger=app.logger
         )
         if err:
             failures[label] = err
@@ -243,7 +256,7 @@ def critique():
         f"Independent specialist critiques to compare and synthesize:\n\n{critiques_block}"
     )
 
-    final_text, err = evidence_reporting.run_synthesis_pass(api_key, synthesis_user_text, logger=app.logger)
+    final_text, err = evidence_reporting.run_synthesis_pass(ai, synthesis_user_text, logger=app.logger)
     if err:
         return error_response(err, status=502)
 
@@ -252,7 +265,7 @@ def critique():
     # and where, and render an annotated image from whatever was located. Both
     # steps degrade gracefully to no annotation rather than failing the request.
     numbered_text, findings = evidence_reporting.number_key_findings(final_text)
-    located = evidence_reporting.run_localization_pass(api_key, data_url, findings, logger=app.logger)
+    located = evidence_reporting.run_localization_pass(ai, data_url, findings, logger=app.logger)
 
     annotated_image_data_url = None
     if located:

@@ -50,14 +50,17 @@ specialists; `screenshot-annotator` as a shared skill):
   direct image URL, Figma file/design/proto/board link, or arbitrary webpage) to one static image, plus
   the submitter's own context (audience/goal/note). `figma_reader.py` owns the Figma REST API integration
   specifically (token handling, URL parsing, error classification); everything else — direct image
-  pass-through, downscaling for Groq's size limit, and Playwright screenshots of other webpages — lives in
+  pass-through, downscaling to the AI provider's image limits, and Playwright screenshots of other webpages — lives in
   `design_reader.py`.
-- `evidence_reporting.py` (+ `groq_client.py`) — the **specialist agents and synthesizer**: a shared
+- `evidence_reporting.py` (+ `ai_client.py`) — the **specialist agents and synthesizer**: a shared
   understanding pass, four independent discipline critics (UI/UX, Graphic Design, Product Design,
   Interaction Design, each seeing the image but never each other's output), a synthesis pass that merges
   their findings into one report, and a localization pass that grounds each numbered finding in a region
   of the image (or explicitly leaves it unmarked when the finding isn't tied to one visible spot).
-  `groq_client.py` is the shared Groq chat-completions call (with rate-limit retry) every pass above uses.
+  `ai_client.py` is the shared AI call every pass above uses. It runs on the app's shared Groq key by
+  default, or on a visitor's own Anthropic, OpenAI, Gemini, or Groq key from the Settings page (provider
+  detected from the key prefix; optional model override). Default models can be changed in `.env` with
+  `GROQ_MODEL`, `OPENAI_MODEL`, `GEMINI_MODEL`, and `ANTHROPIC_MODEL`.
 - `screenshot_annotator.py` — the **Screenshot Annotator**: draws the numbered callout markers the
   localization pass located, directly on the submitted image (Pillow, in-memory). This is the same
   drawing logic as the `screenshot-annotator` Claude Code skill, ported to run in-process for the deployed

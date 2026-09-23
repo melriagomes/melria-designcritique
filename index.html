@@ -407,11 +407,18 @@ window.addEventListener('storage', (e) => {
   if (e.key === 'designCritiqueTheme' || e.key === 'designCritiqueScale') applyDisplayPrefs();
 });
 
-// Returns the visitor's own AI (Groq) API key from Settings, or null to use
-// the server's shared key.
-function getAiApiKeyValue() {
+// Returns the visitor's own AI key from Settings as {provider, key, model},
+// or null to use the server's shared key. An older plain-string value is a
+// bare key; the server then detects its provider from the prefix.
+function getAiKeyConfig() {
   try {
-    return localStorage.getItem(AI_KEY_STORAGE) || null;
+    const raw = localStorage.getItem(AI_KEY_STORAGE);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.key) return parsed;
+    } catch (err) {}
+    return { provider: '', key: raw, model: '' };
   } catch (err) {
     return null;
   }
@@ -614,10 +621,15 @@ sendBtn.addEventListener('click', async () => {
   const activeKey = getActiveApiKeyValue();
   if (activeKey) formData.append('access_token', activeKey);
 
-  // Attach the visitor's own AI key, if set — the server uses it instead of
-  // its shared GROQ_API_KEY for this request only.
-  const aiKey = getAiApiKeyValue();
-  if (aiKey) formData.append('ai_api_key', aiKey);
+  // Attach the visitor's own AI key (Anthropic, OpenAI, Gemini, or Groq), if
+  // set — the server uses it instead of its shared GROQ_API_KEY for this
+  // request only.
+  const aiKey = getAiKeyConfig();
+  if (aiKey) {
+    formData.append('ai_api_key', aiKey.key);
+    if (aiKey.provider) formData.append('ai_provider', aiKey.provider);
+    if (aiKey.model) formData.append('ai_model', aiKey.model);
+  }
 
   // Reset composer for the next turn.
   const usedFile = selectedFile;

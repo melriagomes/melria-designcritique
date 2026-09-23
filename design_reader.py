@@ -24,7 +24,14 @@ import figma_reader
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 PAGE_LOAD_TIMEOUT_MS = 15_000
-GROQ_MAX_IMAGE_PIXELS = 33_177_600  # Groq vision models reject anything larger than this
+# Per-provider vision input limits. max_bytes is the raw image size, kept low
+# enough that the base64-encoded copy sent in the request still fits.
+IMAGE_LIMITS = {
+    "groq": {"max_pixels": 33_177_600, "max_dim": None, "max_bytes": 15 * 1024 * 1024},
+    "openai": {"max_pixels": None, "max_dim": None, "max_bytes": 15 * 1024 * 1024},
+    "gemini": {"max_pixels": None, "max_dim": None, "max_bytes": 14 * 1024 * 1024},
+    "anthropic": {"max_pixels": None, "max_dim": 8000, "max_bytes": 3_700_000},
+}
 
 _default_logger = logging.getLogger(__name__)
 
@@ -34,38 +41,71 @@ def looks_like_image_extension(filename):
     return ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
-def downscale_for_groq(image_bytes, mime, logger=None):
-    """Shrink an image to fit Groq's max-pixel limit for vision models.
+def downscale_for_provider(image_bytes, mime, provider, logger=None):
+    """Shrink an image to fit `provider`'s vision-input limits (see
+    IMAGE_LIMITS): Groq caps total pixels, Anthropic caps each side at 8000px
+    and the file at ~5MB once base64-encoded, and every provider caps request
+    size.
 
     Applies regardless of where the image came from (upload, direct image URL,
-    Figma render, or webpage screenshot) — any of those can exceed the limit,
+    Figma render, or webpage screenshot) — any of those can exceed a limit,
     most commonly a full-page screenshot of a tall webpage or a Figma render
     at 2x scale. Returns (possibly-unchanged) image_bytes and mime.
     """
     log = logger or _default_logger
+    limits = IMAGE_LIMITS.get(provider, IMAGE_LIMITS["groq"])
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
-            pixels = img.width * img.height
-            if pixels <= GROQ_MAX_IMAGE_PIXELS:
+            width, height = img.width, img.height
+            scale = 1.0
+            if limits["max_pixels"] and width * height > limits["max_pixels"]:
+                scale = min(scale, (limits["max_pixels"] / (width * height)) ** 0.5)
+            if limits["max_dim"] and max(width, height) > limits["max_dim"]:
+                scale = min(scale, limits["max_dim"] / max(width, height))
+            if scale == 1.0 and len(image_bytes) <= limits["max_bytes"]:
                 return image_bytes, mime
 
             # A small safety margin below the exact limit avoids rounding the
             # resized dimensions back up to the boundary.
-            scale = (GROQ_MAX_IMAGE_PIXELS / pixels) ** 0.5 * 0.99
-            new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            if scale < 1.0:
+                scale *= 0.99
             resized = img.convert("RGB") if img.mode in ("P", "CMYK") else img
-            resized = resized.resize(new_size, Image.LANCZOS)
+            if scale < 1.0:
+                resized = resized.resize(
+                    (max(1, int(width * scale)), max(1, int(height * scale))), Image.LANCZOS
+                )
 
-            buf = io.BytesIO()
-            resized.save(buf, format="PNG")
+            out_bytes, out_mime = _encode_png(resized), "image/png"
+            # Still too many bytes: switch to JPEG, then keep shrinking.
+            while len(out_bytes) > limits["max_bytes"]:
+                out_bytes, out_mime = _encode_jpeg(resized), "image/jpeg"
+                if len(out_bytes) <= limits["max_bytes"] or min(resized.size) < 200:
+                    break
+                resized = resized.resize(
+                    (int(resized.width * 0.8), int(resized.height * 0.8)), Image.LANCZOS
+                )
+
             log.info(
-                "downscaled oversized image for groq: %sx%s (%s px) -> %sx%s (%s px)",
-                img.width, img.height, pixels, new_size[0], new_size[1], new_size[0] * new_size[1],
+                "downscaled image for %s: %sx%s (%s bytes) -> %sx%s %s (%s bytes)",
+                provider, width, height, len(image_bytes),
+                resized.width, resized.height, out_mime, len(out_bytes),
             )
-            return buf.getvalue(), "image/png"
+            return out_bytes, out_mime
     except Exception as exc:  # noqa: BLE001 - image parsing can fail in many ways; fall back safely
         log.warning("could not inspect/downscale image (%s) — sending as-is", exc)
         return image_bytes, mime
+
+
+def _encode_png(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _encode_jpeg(img):
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
 
 
 def resolve_uploaded_image(file_storage):
