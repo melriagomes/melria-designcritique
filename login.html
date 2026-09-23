@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Design Critique Agent</title>
+<script>
+// Applied before first paint so the stored theme/text-size preference never flashes wrong.
+(function () {
+  try {
+    var theme = localStorage.getItem('designCritiqueTheme') || 'system';
+    var resolved = (theme === 'dark' || theme === 'light') ? theme :
+      ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', resolved);
+    document.documentElement.style.fontSize = (localStorage.getItem('designCritiqueScale') || '100') + '%';
+  } catch (err) {}
+})();
+</script>
+<script src="https://accounts.google.com/gsi/client" async></script>
+<style>
+  :root {
+    --bg: #FFF1F1;
+    --panel: #ffffff;
+    --panel-soft: #FBEBFE;
+    --border: #F1D6F8;
+    --text: #3B0270;
+    --muted: #8B6BA8;
+    --accent-text: #6F00FF;
+    --error-bg: #fdecea;
+    --error-border: #f5b5ac;
+    --error-text: #7a271a;
+  }
+  :root[data-theme="dark"] {
+    --bg: #1B0430;
+    --panel: #241040;
+    --panel-soft: #2E1550;
+    --border: #4A2470;
+    --text: #F3E9FB;
+    --muted: #C9AEDD;
+    --accent-text: #C89CFF;
+    --error-bg: #451515;
+    --error-border: #7a3a3a;
+    --error-text: #FFB4A8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+  }
+  .card {
+    width: 100%;
+    max-width: 26rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 1.375rem;
+    box-shadow: 0 12px 40px rgba(59, 2, 112, 0.10);
+    padding: 2.25rem 2rem 2rem;
+    text-align: center;
+  }
+  h1 { font-size: 1.375rem; margin: 0 0 0.5rem; }
+  .lede { margin: 0 0 1.75rem; font-size: 0.9375rem; line-height: 1.5; color: var(--muted); }
+  .lede strong { color: var(--accent-text); }
+  #googleButton { display: flex; justify-content: center; min-height: 44px; }
+  #status { margin-top: 1rem; font-size: 0.875rem; color: var(--muted); min-height: 1.25rem; }
+  #error {
+    display: none;
+    margin-top: 1rem;
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    color: var(--error-text);
+    border-radius: 0.625rem;
+    padding: 0.75rem 0.875rem;
+  }
+  #error.show { display: block; }
+  .fine-print { margin: 1.5rem 0 0; font-size: 0.78125rem; color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Design Critique Agent</h1>
+  <p class="lede">Sign in with your <strong>@__ALLOWED_DOMAIN__</strong> Google account to get structured critiques of your designs.</p>
+  <div id="googleButton"></div>
+  <div id="status" role="status" aria-live="polite"></div>
+  <div id="error" role="alert"></div>
+  <p class="fine-print">Only @__ALLOWED_DOMAIN__ accounts can use this app. We only read your name and email to sign you in.</p>
+</main>
+
+<script>
+const AUTH = __AUTH_CONFIG__;
+const statusEl = document.getElementById('status');
+const errorEl = document.getElementById('error');
+
+function showError(message) {
+  statusEl.textContent = '';
+  errorEl.textContent = message;
+  errorEl.classList.add('show');
+}
+
+async function handleCredential(response) {
+  errorEl.classList.remove('show');
+  statusEl.textContent = 'Signing you in…';
+  try {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showError(data.error || 'Sign-in failed. Please try again.');
+      return;
+    }
+    window.location.reload(); // the server now serves the app instead of this page
+  } catch (err) {
+    showError("Couldn't reach the server. Check your connection and try again.");
+  }
+}
+
+function initGoogle() {
+  if (!AUTH.clientId) {
+    showError("Google sign-in isn't configured on this server yet (GOOGLE_CLIENT_ID is not set).");
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: AUTH.clientId,
+    callback: handleCredential,
+    hd: AUTH.domain, // hint: Google offers only accounts from this domain
+    ux_mode: 'popup',
+  });
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  google.accounts.id.renderButton(document.getElementById('googleButton'), {
+    theme: dark ? 'filled_black' : 'outline',
+    size: 'large',
+    shape: 'pill',
+    text: 'signin_with',
+    width: 280,
+  });
+}
+
+// The Google script loads async; wait for it (and report if it's blocked).
+(function waitForGoogle(attempt) {
+  if (window.google && google.accounts && google.accounts.id) return initGoogle();
+  if (attempt > 100) return showError("Google sign-in couldn't load. Check that accounts.google.com isn't blocked, then refresh.");
+  setTimeout(() => waitForGoogle(attempt + 1), 100);
+})(0);
+</script>
+</body>
+</html>

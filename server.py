@@ -9,22 +9,34 @@ understanding pass, four independent discipline specialists (UI/UX, Graphic
 Design, Product Design, Interaction Design), a synthesis pass, and a
 localization pass; then hands the located findings to the **Screenshot
 Annotator** (`screenshot_annotator`) to render one annotated image. Kept
-deliberately small otherwise: no database, no auth, no session memory — one
+deliberately small otherwise: no database and no conversation memory — one
 request in, one critique out, per plan.md's MVP scope.
+
+Every page and API route requires Google sign-in with an allowed-domain
+account (`auth`); the signed-in user lives only in Flask's signed session
+cookie. Finished critiques can be exported as PDF or Word via /api/export
+(`exporter`).
 """
 import base64
+import html
+import json
 import logging
 import os
+import secrets
 import sys
+from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, session
 
 import ai_client
+import auth
 import design_reader
 import evidence_reporting
+import exporter
 import figma_reader
 import screenshot_annotator
 
@@ -35,6 +47,24 @@ BASE_DIR = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = design_reader.MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
 app.logger.setLevel(logging.INFO)
+
+# Signs the session cookie that holds the signed-in user. Without a fixed
+# SECRET_KEY every restart (and every deploy) signs everyone out.
+_secret_key = os.environ.get("SECRET_KEY")
+if not _secret_key:
+    app.logger.warning("SECRET_KEY is not set — using a random one; sessions reset on every restart.")
+    _secret_key = secrets.token_hex(32)
+app.secret_key = _secret_key
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    # Lax keeps other sites from making signed-in POSTs to this app.
+    SESSION_COOKIE_SAMESITE="Lax",
+    # HTTPS-only on Railway; plain http on localhost for development.
+    SESSION_COOKIE_SECURE=os.environ.get(
+        "SESSION_COOKIE_SECURE", "1" if os.environ.get("RAILWAY_ENVIRONMENT") else "0"
+    ) == "1",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
 
 
 def get_ai_config(key_override=None, provider_override=None, model_override=None):
@@ -123,17 +153,112 @@ def error_response(message, status=400):
     return jsonify({"error": message}), status
 
 
+def current_user():
+    return session.get("user")
+
+
+def login_page():
+    """login.html with this server's Google client ID and allowed domain filled in."""
+    page = (BASE_DIR / "login.html").read_text(encoding="utf-8")
+    config = {"clientId": auth.GOOGLE_CLIENT_ID, "domain": auth.ALLOWED_DOMAIN}
+    # Escape "<" so the JSON can't close the <script> tag it's embedded in.
+    page = page.replace("__AUTH_CONFIG__", json.dumps(config).replace("<", "\\u003c"))
+    page = page.replace("__ALLOWED_DOMAIN__", html.escape(auth.ALLOWED_DOMAIN))
+    return Response(page, mimetype="text/html")
+
+
+def signed_in_page(filename):
+    """Serve an app page to a signed-in user, or the sign-in page otherwise."""
+    if not current_user():
+        return login_page()
+    response = send_from_directory(BASE_DIR, filename)
+    # Never let a browser (or its back button) show the app to someone who
+    # has since signed out.
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def require_sign_in(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_user():
+            return error_response("You've been signed out. Refresh the page to sign in again.", status=401)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @app.route("/")
 def index():
-    return send_from_directory(BASE_DIR, "index.html")
+    return signed_in_page("index.html")
 
 
 @app.route("/settings")
 def settings_page():
-    return send_from_directory(BASE_DIR, "settings.html")
+    return signed_in_page("settings.html")
+
+
+@app.route("/api/auth/google", methods=["POST"])
+def google_sign_in():
+    credential = (request.get_json(silent=True) or {}).get("credential")
+    try:
+        user = auth.verify_google_credential(credential, logger=app.logger)
+    except auth.SignInError as exc:
+        return error_response(str(exc), status=exc.status)
+    session.clear()
+    session.permanent = True
+    session["user"] = user
+    app.logger.info("signed in: %s", user["email"])
+    return jsonify({"user": user})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def sign_out():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/me")
+@require_sign_in
+def me():
+    return jsonify({"user": current_user()})
+
+
+@app.route("/api/export", methods=["POST"])
+@require_sign_in
+def export():
+    """Turn a finished critique (its Markdown reply and annotated image, as
+    the browser received them) into a downloadable PDF or Word file."""
+    payload = request.get_json(silent=True) or {}
+    fmt = payload.get("format")
+    markdown = payload.get("markdown") or ""
+    if fmt not in ("pdf", "docx"):
+        return error_response("Choose PDF or Word for the export.")
+    if not markdown.strip():
+        return error_response("There's no critique to export.")
+    image_bytes, mime = exporter.decode_image_data_url(payload.get("image"))
+
+    filename = f"design-critique-{datetime.now():%Y-%m-%d-%H%M}.{fmt}"
+    try:
+        if fmt == "pdf":
+            data = exporter.to_pdf(markdown, image_bytes, mime)
+            content_type = "application/pdf"
+        else:
+            data = exporter.to_docx(markdown, image_bytes)
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    except Exception as exc:  # noqa: BLE001 - report any rendering failure as a clean error
+        app.logger.exception("export to %s failed", fmt)
+        return error_response(f"Couldn't create the {fmt.upper()} file: {exc}", status=500)
+
+    return Response(
+        data,
+        mimetype=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.route("/api/critique", methods=["POST"])
+@require_sign_in
 def critique():
     image_file = request.files.get("image")
     url = (request.form.get("url") or "").strip()
