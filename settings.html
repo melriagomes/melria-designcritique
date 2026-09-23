@@ -262,6 +262,7 @@
     .ai-key-form select { width: 100%; }
   }
   .modal a { color: var(--accent-text); }
+  .account-picture { width: 2.25rem; height: 2.25rem; border-radius: 50%; flex-shrink: 0; }
   .add-key-actions { display: flex; gap: 0.5rem; }
 
   #addKeyToggle {
@@ -403,6 +404,19 @@
       you're making. Your <strong>AI API key</strong> — from Anthropic, OpenAI, Google Gemini, or
       Groq — runs critiques on your own account instead of the app's shared one. <strong>Figma API keys</strong> are only used for figma.com
       links — mark one <strong>active</strong> and it's used the next time you paste one.
+    </div>
+
+    <div class="section-head">
+      <h2>Account</h2>
+    </div>
+
+    <div class="key-row" id="accountRow">
+      <img id="accountPicture" class="account-picture" alt="" referrerpolicy="no-referrer" hidden>
+      <div class="key-info">
+        <div class="key-name" id="accountName">Signed in</div>
+        <div class="key-value" id="accountEmail"></div>
+      </div>
+      <button type="button" class="btn-secondary" id="signOutBtn">Sign out</button>
     </div>
 
     <div class="section-head">
@@ -828,6 +842,42 @@ figmaInfoBtn.addEventListener('click', () => figmaInfoModal.classList.add('open'
 figmaInfoClose.addEventListener('click', () => figmaInfoModal.classList.remove('open'));
 figmaInfoModal.addEventListener('click', (e) => {
   if (e.target === figmaInfoModal) figmaInfoModal.classList.remove('open');
+});
+
+// --- Account ---------------------------------------------------------------
+const accountName = document.getElementById('accountName');
+const accountEmail = document.getElementById('accountEmail');
+const accountPicture = document.getElementById('accountPicture');
+const signOutBtn = document.getElementById('signOutBtn');
+
+// Reload the whole app (not just this overlay) so the sign-in page shows.
+function reloadApp() {
+  if (isEmbedded) window.parent.location.reload();
+  else window.location.href = '/';
+}
+
+fetch('/api/me')
+  .then((res) => {
+    if (res.status === 401) { reloadApp(); return null; }
+    return res.json();
+  })
+  .then((data) => {
+    if (!data || !data.user) return;
+    accountName.textContent = data.user.name;
+    accountEmail.textContent = data.user.email;
+    if (data.user.picture) {
+      accountPicture.src = data.user.picture;
+      accountPicture.hidden = false;
+    }
+  })
+  .catch(() => {});
+
+signOutBtn.addEventListener('click', async () => {
+  signOutBtn.disabled = true;
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (err) {}
+  reloadApp();
 });
 
 load();

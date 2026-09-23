@@ -35,9 +35,32 @@ plan this was built against.
    python server.py
    ```
 
-4. Open **http://127.0.0.1:5000** in your browser. Switch between the "Image" and "URL" tabs to submit
-   a screenshot/photo or a link (either a direct image URL or a webpage, which gets screenshotted
-   automatically), optionally add a note, and hit Send.
+4. Open **http://localhost:5000** in your browser (use `localhost`, not `127.0.0.1` — that's the origin
+   registered for Google sign-in) and sign in with your @flame.edu.in Google account. Switch between the
+   "Image" and "URL" tabs to submit a screenshot/photo or a link (either a direct image URL or a webpage,
+   which gets screenshotted automatically), optionally add a note, and hit Send. Each finished critique
+   has **PDF · Markdown · Word** download buttons.
+
+## Google sign-in setup
+
+The app only lets in signed-in Google accounts from one domain (`flame.edu.in` by default). The server
+verifies Google's ID token and requires a verified email in that Google Workspace domain, so personal
+Gmail accounts and other organizations are rejected.
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create a project (or
+   pick one), set up the **OAuth consent screen** (External is fine; add your app name and support email),
+   then **Create credentials → OAuth client ID → Web application**.
+2. Under **Authorized JavaScript origins**, add every place the app runs:
+   `http://localhost`, `http://localhost:5000`, and your Railway URL
+   (e.g. `https://melria-designcritique-production.up.railway.app`). No redirect URIs are needed.
+3. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`) and set these in `.env` locally and
+   in Railway → your service → **Variables**:
+   ```
+   GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+   SECRET_KEY=<any long random string, e.g. from: python -c "import secrets; print(secrets.token_hex(32))">
+   ```
+   `SECRET_KEY` signs the session cookie; without a fixed one, every restart or deploy signs everyone out.
+   Optionally set `ALLOWED_EMAIL_DOMAIN` to allow a different domain.
 
 ## How it works
 

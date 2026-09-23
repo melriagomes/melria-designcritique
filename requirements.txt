@@ -5,3 +5,5 @@ anthropic
 playwright
 Pillow
 gunicorn
+google-auth
+python-docx

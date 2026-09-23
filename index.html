@@ -281,6 +281,32 @@
 
   .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.375rem; }
 
+  .download-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+  .download-label { font-size: 0.78125rem; color: var(--muted); margin-right: 0.125rem; }
+  .download-bar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    border: 1px solid var(--border);
+    background: var(--panel-soft);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .download-bar button .material-symbols-outlined { font-size: 1rem; color: var(--accent-text); }
+  .download-bar button:hover:not(:disabled) { border-color: var(--accent); }
+  .download-bar button:disabled { opacity: 0.55; cursor: progress; }
+  .download-status { font-size: 0.78125rem; color: var(--muted); }
+
   #settingsOverlay {
     display: none;
     position: fixed;
@@ -580,6 +606,85 @@ function replaceTyping(html, isError, annotatedImageDataUrl) {
     : '';
   typing.querySelector('.bubble').innerHTML = imgHtml + html;
   scrollToBottom();
+  return typing;
+}
+
+// --- Downloads -------------------------------------------------------------
+// Markdown is assembled here; PDF and Word are rendered by the server
+// (/api/export) from the same Markdown and annotated image.
+
+function exportFilename(ext) {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `design-critique-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function critiqueMarkdownFile(markdown, imageDataUrl) {
+  const image = imageDataUrl ? `![Annotated design with numbered callouts](${imageDataUrl})\n\n` : '';
+  return `# Design Critique\n\n${image}${markdown.trim()}\n`;
+}
+
+function addDownloadBar(msgEl, markdown, imageDataUrl) {
+  const bar = document.createElement('div');
+  bar.className = 'download-bar';
+  bar.innerHTML = '<span class="download-label">Download</span>';
+  const status = document.createElement('span');
+  status.className = 'download-status';
+  status.setAttribute('role', 'status');
+
+  const formats = [
+    { key: 'pdf', label: 'PDF', icon: 'picture_as_pdf' },
+    { key: 'md', label: 'Markdown', icon: 'code' },
+    { key: 'docx', label: 'Word', icon: 'description' },
+  ];
+  formats.forEach(({ key, label, icon }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerHTML = `<span class="material-symbols-outlined">${icon}</span> ${label}`;
+    btn.setAttribute('aria-label', `Download critique as ${label}`);
+    btn.addEventListener('click', async () => {
+      status.textContent = '';
+      if (key === 'md') {
+        saveBlob(new Blob([critiqueMarkdownFile(markdown, imageDataUrl)], { type: 'text/markdown' }), exportFilename('md'));
+        return;
+      }
+      btn.disabled = true;
+      status.textContent = `Preparing ${label}…`;
+      try {
+        const res = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ format: key, markdown, image: imageDataUrl || null }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          status.textContent = data.error || `Couldn't create the ${label} file (HTTP ${res.status}).`;
+          return;
+        }
+        saveBlob(await res.blob(), exportFilename(key));
+        status.textContent = '';
+      } catch (err) {
+        status.textContent = `Couldn't reach the server to create the ${label} file.`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    bar.appendChild(btn);
+  });
+  bar.appendChild(status);
+  msgEl.appendChild(bar);
+  scrollToBottom();
 }
 
 function scrollToBottom() {
@@ -647,11 +752,13 @@ sendBtn.addEventListener('click', async () => {
 
   try {
     const res = await fetch('/api/critique', { method: 'POST', body: formData });
-    const data = await res.json();
+    // A proxy/server error page isn't JSON — fall back to the status code.
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      replaceTyping(escapeHtml(data.error || 'Something went wrong.'), true);
+      replaceTyping(escapeHtml(data.error || `Something went wrong (HTTP ${res.status}). Please try again.`), true);
     } else {
-      replaceTyping(renderMarkdown(data.reply || ''), false, data.annotated_image);
+      const msgEl = replaceTyping(renderMarkdown(data.reply || ''), false, data.annotated_image);
+      if (msgEl && data.reply) addDownloadBar(msgEl, data.reply, data.annotated_image);
     }
   } catch (err) {
     replaceTyping('Could not reach the server. Is server.py still running?', true);
