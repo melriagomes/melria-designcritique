@@ -18,30 +18,32 @@
 </script>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap">
 <style>
   :root {
-    --bg: #EEEBE2;
+    --bg: #f5f8ff;
     --panel: #ffffff;
-    --panel-soft: #F4F1E9;
-    --border: #D8D2C0;
-    --text: #1D1B16;
-    --muted: #746B58;
-    --accent: #C62828;
-    --accent-text: #B71C1C;
+    --panel-soft: rgba(35, 93, 252, 0.06);
+    --border: rgba(7, 18, 48, 0.12);
+    --text: #071230;
+    --muted: rgba(7, 18, 48, 0.58);
+    --accent: #235dfc;
+    --accent-text: #235dfc;
+    --highlight: #FCBF23;
     --error-bg: #FBE4E1;
     --error-border: #E3A99C;
     --error-text: #7A2A1F;
   }
   :root[data-theme="dark"] {
-    --bg: #17140F;
-    --panel: #201C15;
-    --panel-soft: #262019;
-    --border: #3C3527;
-    --text: #F1ECDE;
-    --muted: #B3A98C;
-    --accent: #FF6B58;
-    --accent-text: #FF8A78;
+    --bg: #071230;
+    --panel: #10193F;
+    --panel-soft: rgba(245, 248, 255, 0.10);
+    --border: rgba(245, 248, 255, 0.16);
+    --text: #f5f8ff;
+    --muted: rgba(245, 248, 255, 0.62);
+    --accent: #235dfc;
+    --accent-text: #6E94FF;
+    --highlight: #FCBF23;
     --error-bg: #3A1712;
     --error-border: #6B372B;
     --error-text: #FFC9BA;
@@ -49,7 +51,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -57,6 +59,22 @@
     align-items: center;
     justify-content: center;
     padding: 1.5rem 1rem;
+    position: relative;
+  }
+  .bg-video {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: -2;
+  }
+  .bg-scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    opacity: 0.72;
+    z-index: -1;
   }
   .card {
     width: 100%;
@@ -64,14 +82,14 @@
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 0.625rem;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 8px 32px rgba(7, 18, 48, 0.18);
     padding: 2.25rem 2rem 2rem;
     text-align: center;
   }
   .mark {
     width: 2.25rem;
     height: 3px;
-    background: var(--accent);
+    background: var(--highlight);
     border-radius: 2px;
     margin: 0 auto 1.25rem;
   }
@@ -97,6 +115,10 @@
 </style>
 </head>
 <body>
+<video class="bg-video" autoplay muted loop playsinline disablepictureinpicture disableRemotePlayback aria-hidden="true">
+  <source src="/assets/login-bg.mp4" type="video/mp4">
+</video>
+<div class="bg-scrim" aria-hidden="true"></div>
 <main class="card">
   <div class="mark" aria-hidden="true"></div>
   <h1>Design Critique Agent</h1>

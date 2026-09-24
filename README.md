@@ -62,6 +62,22 @@ Gmail accounts and other organizations are rejected.
    `SECRET_KEY` signs the session cookie; without a fixed one, every restart or deploy signs everyone out.
    Optionally set `ALLOWED_EMAIL_DOMAIN` to allow a different domain.
 
+## Persisting history on Railway
+
+Each finished critique is saved to that account's history (`history.py`, a SQLite file) so it can be
+revisited later from the **History** button in the app. Locally this file lives at `./data/history.db`
+(gitignored) with no setup needed. On Railway, the filesystem is wiped on every deploy unless the data
+lives on a **Volume**:
+
+1. In the Railway dashboard, open this service → **Settings** → **Volumes** → **Add Volume**.
+2. Set the **mount path** to `/data` (any path works as long as it matches step 3).
+3. Add a variable in **Variables**: `DATA_DIR=/data`.
+4. Redeploy. `history.py` creates `history.db` on that volume automatically on first run.
+
+Without a volume attached, history still works between requests but is lost on the next deploy or
+restart — the app degrades gracefully either way (saving to history never blocks a critique from
+completing, even if the write fails).
+
 ## How it works
 
 The backend is an **orchestrator** (`server.py`) that composes four building blocks — mirroring this
@@ -88,8 +104,13 @@ specialists; `screenshot-annotator` as a shared skill):
   localization pass located, directly on the submitted image (Pillow, in-memory). This is the same
   drawing logic as the `screenshot-annotator` Claude Code skill, ported to run in-process for the deployed
   app instead of as a subprocess script.
+- `history.py` — per-account **History**: saves each finished critique (source, note/audience/goals,
+  Markdown, annotated image) to a SQLite file on disk, scoped to the signed-in user's email. Backed by a
+  Railway Volume in production (see "Persisting history on Railway" above) so it survives deploys; a local
+  `./data/history.db` otherwise. `/api/history` lists an account's past analyses, `/api/history/<id>`
+  fetches one full record — both reject anything that isn't the caller's own.
 - `server.py` — the **orchestrator**: the `/api/critique` route strings the above together (Design Reader
-  → shared understanding → specialists → synthesis → localization → Screenshot Annotator) and returns the
-  final Markdown report plus an annotated image when at least one finding could be located.
-- Stateless by design (per `plan.md`'s MVP scope): each submission is critiqued independently, no saved
-  history or multi-turn memory yet.
+  → shared understanding → specialists → synthesis → localization → Screenshot Annotator → History) and
+  returns the final Markdown report plus an annotated image when at least one finding could be located.
+- Each submission is still critiqued independently — no multi-turn memory within a critique — but the
+  finished result is saved to History rather than discarded, per the account that submitted it.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Design Critique Chat</title>
+<title>It Works</title>
 <script>
 // Applied before first paint so the stored theme/text-size preference never flashes wrong.
 (function () {
@@ -18,44 +18,49 @@
 </script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
+  /* Minimalist four-color system: Cobalt (#235dfc) is the sole interactive
+     hue, Ink (#071230) and Paper (#f5f8ff) are the two bases, and everything
+     else (borders, soft fills, muted text) is an alpha tint of Ink or Paper
+     rather than a new hex. Gold (#FCBF23) is reserved for the small
+     decorative accents. */
   :root {
-    --bg: #EEEBE2;
+    --bg: #f5f8ff;
     --panel: #ffffff;
-    --panel-soft: #F4F1E9;
-    --border: #D8D2C0;
-    --text: #1D1B16;
-    --muted: #746B58;
-    --structure: #2F5D6B;
-    --accent: #C62828;
-    --accent-text: #B71C1C;
-    --accent-hover: #A31F1F;
-    --accent-soft: #F4D9D6;
+    --panel-soft: rgba(35, 93, 252, 0.06);
+    --border: rgba(7, 18, 48, 0.12);
+    --text: #071230;
+    --muted: rgba(7, 18, 48, 0.58);
+    --structure: #235dfc;
+    --accent: #235dfc;
+    --accent-text: #235dfc;
+    --accent-hover: #1b49c9;
+    --accent-soft: rgba(35, 93, 252, 0.10);
     --accent-ink: #ffffff;
+    --highlight: #FCBF23;
     --agent-bubble: #ffffff;
-    --user-bubble: #1D1B16;
+    --user-bubble: #071230;
     --error-bg: #FBE4E1;
     --error-border: #E3A99C;
     --error-text: #7A2A1F;
   }
-  /* Dark palette derived from the same warm-ink/crit-red system, tuned to
-     meet WCAG AA contrast (>=4.5:1 body text, >=3:1 large text/UI edges). */
   :root[data-theme="dark"] {
-    --bg: #17140F;
-    --panel: #201C15;
-    --panel-soft: #262019;
-    --border: #3C3527;
-    --text: #F1ECDE;
-    --muted: #B3A98C;
-    --structure: #7FB8C7;
-    --accent: #FF6B58;
-    --accent-text: #FF8A78;
-    --accent-hover: #FF8A78;
-    --accent-soft: #4A2620;
-    --accent-ink: #1A0E0B;
-    --agent-bubble: #201C15;
-    --user-bubble: #F1ECDE;
+    --bg: #071230;
+    --panel: #10193F;
+    --panel-soft: rgba(245, 248, 255, 0.10);
+    --border: rgba(245, 248, 255, 0.16);
+    --text: #f5f8ff;
+    --muted: rgba(245, 248, 255, 0.62);
+    --structure: #6E94FF;
+    --accent: #235dfc;
+    --accent-text: #6E94FF;
+    --accent-hover: #4d7aff;
+    --accent-soft: rgba(35, 93, 252, 0.20);
+    --accent-ink: #ffffff;
+    --highlight: #FCBF23;
+    --agent-bubble: #10193F;
+    --user-bubble: #f5f8ff;
     --error-bg: #3A1712;
     --error-border: #6B372B;
     --error-text: #FFC9BA;
@@ -71,7 +76,7 @@
   }
   body {
     margin: 0;
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -80,24 +85,14 @@
   }
   .app {
     width: 100%;
-    max-width: 1080px;
     height: 100vh;
     display: flex;
     flex-direction: column;
     background: var(--panel);
   }
-  @media (min-width: 860px) {
-    body { padding: 28px 16px; }
-    .app {
-      height: calc(100vh - 56px);
-      margin: 0 auto;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-      overflow: hidden;
-    }
-  }
   header {
+    position: relative;
+    z-index: 65;
     padding: 1.25rem 2rem;
     border-bottom: 1px solid var(--border);
     background: var(--panel-soft);
@@ -106,8 +101,8 @@
     justify-content: space-between;
     gap: 0.75rem;
   }
-  header h1 { font-size: 1.125rem; margin: 0; color: var(--text); font-weight: 600; letter-spacing: -0.01em; }
-  header p { margin: 0.1875rem 0 0; font-size: 0.845rem; color: var(--muted); }
+  header h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.25rem; margin: 0; color: var(--text); font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; }
+  header p { margin: 0.25rem 0 0; font-size: 0.845rem; color: var(--muted); }
   #settingsBtn {
     border: none;
     background: transparent;
@@ -120,6 +115,178 @@
     display: inline-flex;
   }
   #settingsBtn:hover { background: var(--accent-soft); color: var(--accent-text); }
+  #historyBtn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0.375rem;
+    line-height: 1;
+    color: var(--muted);
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-flex;
+  }
+  #historyBtn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-text); }
+  #historyBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .header-actions { display: flex; align-items: center; gap: 0.625rem; flex-shrink: 0; }
+  .new-analysis-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.9375rem;
+    font-size: 0.845rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .new-analysis-btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .new-analysis-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .hidden { display: none !important; }
+
+  #emptyState {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem;
+    text-align: center;
+  }
+  #emptyState .mark { width: 2.25rem; height: 3px; background: var(--highlight); border-radius: 2px; }
+  #emptyState h2 { margin: 0; color: var(--text); font-size: 1.375rem; font-weight: 600; letter-spacing: -0.01em; }
+  #emptyStateBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 0.375rem;
+    padding: 0.6875rem 1.375rem;
+    font-size: 0.90625rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #emptyStateBtn:hover { background: var(--accent-hover); }
+
+  #chatModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(0, 0, 0, 0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  #chatModal.open { display: flex; }
+  .modal-panel {
+    width: 100%;
+    max-width: 560px;
+    max-height: 90vh;
+    background: var(--panel);
+    border-radius: 0.625rem;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .modal-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-soft);
+    flex-shrink: 0;
+  }
+  .modal-panel-header h2 { font-size: 1rem; margin: 0; font-weight: 600; color: var(--text); }
+  .modal-panel-header p { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+  #closeChatModal {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0.375rem;
+    line-height: 1;
+    color: var(--muted);
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-flex;
+  }
+  #closeChatModal:hover { background: var(--accent-soft); color: var(--accent-text); }
+  body.chat-modal-open { overflow: hidden; }
+
+  #historyModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(0, 0, 0, 0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  #historyModal.open { display: flex; }
+  #closeHistoryModal {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0.375rem;
+    line-height: 1;
+    color: var(--muted);
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-flex;
+  }
+  #closeHistoryModal:hover { background: var(--accent-soft); color: var(--accent-text); }
+
+  .history-list {
+    max-height: min(60vh, 500px);
+    overflow-y: auto;
+    padding: 1rem 1.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .history-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    font-family: inherit;
+  }
+  .history-row:hover { border-color: var(--accent); background: var(--panel-soft); }
+  .history-row .history-icon { color: var(--structure); flex-shrink: 0; }
+  .history-row .history-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.125rem; }
+  .history-row .history-source {
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-row .history-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .history-empty { color: var(--muted); font-size: 0.875rem; padding: 1rem 0.125rem; text-align: center; }
 
   #messages {
     flex: 1;
@@ -168,6 +335,15 @@
     margin-bottom: 10px;
     border: 1px solid var(--border);
   }
+  .msg .pdf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin-bottom: 0.375rem;
+  }
+  .msg .pdf-chip .material-symbols-outlined { font-size: 1.125rem; }
   .msg .url-chip {
     font-size: 0.8125rem;
     font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -181,14 +357,39 @@
   .bubble ul, .bubble ol { margin: 0 0 0.5rem; padding-left: 1.25rem; }
   .bubble li { margin-bottom: 0.25rem; }
 
-  .typing { display: inline-flex; gap: 0.25rem; padding: 0.25rem 0; }
-  .typing span {
-    width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--accent-soft);
-    animation: blink 1.2s infinite ease-in-out;
+  /* Synthesizing overlay: a looping background video (60% opacity) shown
+     full-screen while a critique is synthesizing (up to 7 backend AI calls),
+     and dismissed the moment the result comes back. Everything else on the
+     page is untouched — this only ever adds/removes itself. */
+  #synthOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: var(--bg);
+    pointer-events: none;
   }
-  .typing span:nth-child(2) { animation-delay: 0.2s; }
-  .typing span:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+  #synthOverlay.open { display: flex; }
+  #synthOverlay .synth-bg-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.6;
+  }
+  #synthOverlay #typingWord {
+    position: relative;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    animation: fadeWord 0.35s ease;
+  }
+  @keyframes fadeWord { from { opacity: 0; transform: translateY(0.125rem); } to { opacity: 1; transform: translateY(0); } }
 
   #composer {
     border-top: 1px solid var(--border);
@@ -252,6 +453,7 @@
     color: var(--muted);
   }
   .file-preview img { width: 2rem; height: 2rem; object-fit: cover; border-radius: 0.25rem; }
+  .file-preview #previewPdfIcon { display: none; font-size: 1.5rem; color: var(--structure); }
   .file-preview button {
     border: none; background: none; color: var(--muted); cursor: pointer; font-size: 0.8125rem; text-decoration: underline;
   }
@@ -332,44 +534,77 @@
 <div class="app">
   <header>
     <div>
-      <h1>Design Critique Agent</h1>
-      <p>Send an image or a URL — get back a structured critique with concrete fixes.</p>
+      <h1>It Works</h1>
+      <p>Clear checks, constructive critique</p>
     </div>
-    <button id="settingsBtn" type="button" title="Settings" aria-label="Settings"><span class="material-symbols-outlined">settings</span></button>
+    <div class="header-actions">
+      <button id="newAnalysisBtn" class="new-analysis-btn" type="button"><span class="material-symbols-outlined">add</span> New analysis</button>
+      <button id="historyBtn" type="button" title="History" aria-label="History"><span class="material-symbols-outlined">history</span></button>
+      <button id="settingsBtn" type="button" title="Settings" aria-label="Settings"><span class="material-symbols-outlined">settings</span></button>
+    </div>
   </header>
 
-  <div id="messages"></div>
+  <div id="emptyState">
+    <div class="mark" aria-hidden="true"></div>
+    <h2 id="greeting">Review your design</h2>
+    <button id="emptyStateBtn" type="button"><span class="material-symbols-outlined">add</span> New analysis</button>
+  </div>
 
-  <div id="composer">
-    <div class="mode-toggle">
-      <button id="tabImage" class="active" type="button"><span class="material-symbols-outlined">image</span> Image</button>
-      <button id="tabUrl" type="button"><span class="material-symbols-outlined">link</span> URL</button>
+  <div id="messages" class="hidden"></div>
+</div>
+
+<div id="chatModal" role="dialog" aria-modal="true" aria-label="New analysis">
+  <div class="modal-panel">
+    <div class="modal-panel-header">
+      <div>
+        <h2>New analysis</h2>
+        <p>Send an image, a PDF, or a URL and get back a structured critique with concrete fixes.</p>
+      </div>
+      <button id="closeChatModal" type="button" title="Close" aria-label="Close"><span class="material-symbols-outlined">close</span></button>
     </div>
 
-    <div id="panelImage" class="mode-panel active">
-      <div class="attach-row">
-        <button class="attach-btn" id="attachBtn" type="button"><span class="material-symbols-outlined">attach_file</span> Choose image…</button>
-        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
-        <div class="file-preview" id="filePreview">
-          <img id="previewThumb" alt="">
-          <span id="previewName"></span>
-          <button id="removeFile" type="button">remove</button>
+    <div id="composer">
+      <div class="mode-toggle">
+        <button id="tabImage" class="active" type="button"><span class="material-symbols-outlined">image</span> Image</button>
+        <button id="tabUrl" type="button"><span class="material-symbols-outlined">link</span> URL</button>
+      </div>
+
+      <div id="panelImage" class="mode-panel active">
+        <div class="attach-row">
+          <button class="attach-btn" id="attachBtn" type="button"><span class="material-symbols-outlined">attach_file</span> Choose image or PDF…</button>
+          <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf" hidden>
+          <div class="file-preview" id="filePreview">
+            <img id="previewThumb" alt="">
+            <span id="previewPdfIcon" class="material-symbols-outlined">picture_as_pdf</span>
+            <span id="previewName"></span>
+            <button id="removeFile" type="button">remove</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div id="panelUrl" class="mode-panel">
-      <input type="text" id="urlInput" placeholder="https://example.com/screen-to-critique or a figma.com file/design link">
-    </div>
+      <div id="panelUrl" class="mode-panel">
+        <input type="text" id="urlInput" placeholder="https://example.com/screen-to-critique or a figma.com file/design link">
+      </div>
 
-    <input type="text" id="audienceInput" placeholder="Intended audience (optional, e.g. “new users on mobile”)">
-    <input type="text" id="goalsInput" placeholder="Design goal (optional, e.g. “increase signups”)">
-    <textarea id="noteInput" placeholder="Optional note (e.g. “focus on the checkout flow”)"></textarea>
+      <input type="text" id="audienceInput" placeholder="Intended audience (optional, e.g. “new users on mobile”)">
+      <input type="text" id="goalsInput" placeholder="Design goal (optional, e.g. “increase signups”)">
+      <textarea id="noteInput" placeholder="Optional note (e.g. “focus on the checkout flow”)"></textarea>
 
-    <div class="send-row">
-      <button id="sendBtn" disabled>Send <span class="material-symbols-outlined">send</span></button>
+      <div class="send-row">
+        <button id="sendBtn" disabled>Send <span class="material-symbols-outlined">send</span></button>
+      </div>
+      <div class="hint" id="hint"></div>
     </div>
-    <div class="hint" id="hint"></div>
+  </div>
+</div>
+
+<div id="historyModal" role="dialog" aria-modal="true" aria-label="History">
+  <div class="modal-panel">
+    <div class="modal-panel-header">
+      <h2>History</h2>
+      <button id="closeHistoryModal" type="button" title="Close" aria-label="Close"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div id="historyList" class="history-list"></div>
   </div>
 </div>
 
@@ -387,6 +622,7 @@ const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
 const filePreview = document.getElementById('filePreview');
 const previewThumb = document.getElementById('previewThumb');
+const previewPdfIcon = document.getElementById('previewPdfIcon');
 const previewName = document.getElementById('previewName');
 const removeFile = document.getElementById('removeFile');
 const urlInput = document.getElementById('urlInput');
@@ -396,6 +632,26 @@ const noteInput = document.getElementById('noteInput');
 const sendBtn = document.getElementById('sendBtn');
 const hint = document.getElementById('hint');
 const settingsBtn = document.getElementById('settingsBtn');
+const newAnalysisBtn = document.getElementById('newAnalysisBtn');
+const emptyStateBtn = document.getElementById('emptyStateBtn');
+const chatModal = document.getElementById('chatModal');
+const closeChatModalBtn = document.getElementById('closeChatModal');
+const emptyState = document.getElementById('emptyState');
+const greeting = document.getElementById('greeting');
+const historyBtn = document.getElementById('historyBtn');
+const historyModal = document.getElementById('historyModal');
+const closeHistoryModalBtn = document.getElementById('closeHistoryModal');
+const historyList = document.getElementById('historyList');
+
+// Greets the signed-in user by first name on the idle page. Falls back to the
+// generic heading if the request fails or the account has no name on file.
+fetch('/api/me')
+  .then((res) => (res.ok ? res.json() : null))
+  .then((data) => {
+    const name = data && data.user && data.user.name;
+    if (name) greeting.textContent = `Review your design, ${name.trim().split(/\s+/)[0]}`;
+  })
+  .catch(() => {});
 
 const API_KEYS_STORAGE = 'designCritiqueApiKeys';
 const ACTIVE_KEY_ID_STORAGE = 'designCritiqueActiveApiKeyId';
@@ -432,6 +688,119 @@ function closeSettings() {
 }
 
 settingsBtn.addEventListener('click', openSettings);
+
+// The modal takes input only; results render on the main page. "New analysis"
+// opens the modal fresh and clears whatever's currently shown — the finished
+// result itself isn't lost, since it's already saved to History by then.
+function openChatModal() {
+  messagesEl.innerHTML = '';
+  messagesEl.classList.add('hidden');
+  emptyState.classList.remove('hidden');
+  setMode('image');
+  selectedFile = null;
+  fileInput.value = '';
+  filePreview.style.display = 'none';
+  urlInput.value = '';
+  audienceInput.value = '';
+  goalsInput.value = '';
+  noteInput.value = '';
+  hint.textContent = '';
+  updateSendState();
+  chatModal.classList.add('open');
+  document.body.classList.add('chat-modal-open');
+}
+
+function closeChatModal() {
+  chatModal.classList.remove('open');
+  document.body.classList.remove('chat-modal-open');
+  newAnalysisBtn.focus();
+}
+
+// Swaps the idle greeting for the results area on the main page, once a
+// submission is on its way.
+function showResults() {
+  emptyState.classList.add('hidden');
+  messagesEl.classList.remove('hidden');
+}
+
+newAnalysisBtn.addEventListener('click', openChatModal);
+emptyStateBtn.addEventListener('click', openChatModal);
+closeChatModalBtn.addEventListener('click', closeChatModal);
+chatModal.addEventListener('click', (e) => {
+  if (e.target === chatModal) closeChatModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && chatModal.classList.contains('open')) closeChatModal();
+  if (e.key === 'Escape' && historyModal.classList.contains('open')) closeHistoryModal();
+});
+
+// --- History -----------------------------------------------------------
+// Past analyses are saved server-side per account (`history.py`, on a
+// persistent Railway volume). This modal only lists and loads them — the
+// result renders on the main page, same as a fresh critique.
+
+function closeHistoryModal() {
+  historyModal.classList.remove('open');
+  document.body.classList.remove('chat-modal-open');
+  historyBtn.focus();
+}
+
+async function openHistoryEntry(id) {
+  closeHistoryModal();
+  try {
+    const res = await fetch(`/api/history/${id}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showMainError(data.error || `Couldn't load that analysis (HTTP ${res.status}).`);
+      return;
+    }
+    loadHistoryEntry(data.analysis);
+  } catch (err) {
+    showMainError('Could not reach the server.');
+  }
+}
+
+async function openHistoryModal() {
+  historyModal.classList.add('open');
+  document.body.classList.add('chat-modal-open');
+  historyList.innerHTML = '<div class="history-empty">Loading…</div>';
+  try {
+    const res = await fetch('/api/history');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      historyList.innerHTML = `<div class="history-empty">${escapeHtml(data.error || "Couldn't load history.")}</div>`;
+      return;
+    }
+    const analyses = data.analyses || [];
+    if (!analyses.length) {
+      historyList.innerHTML = '<div class="history-empty">No past analyses yet.</div>';
+      return;
+    }
+    historyList.innerHTML = '';
+    analyses.forEach((a) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'history-row';
+      const icon = a.source_type === 'url' ? 'link' : 'image';
+      const date = new Date(a.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      btn.innerHTML = `<span class="material-symbols-outlined history-icon">${icon}</span>` +
+        `<span class="history-info">` +
+        `<span class="history-source">${escapeHtml(a.source)}</span>` +
+        `<span class="history-date">${escapeHtml(date)}</span>` +
+        `</span>`;
+      btn.addEventListener('click', () => openHistoryEntry(a.id));
+      historyList.appendChild(btn);
+    });
+  } catch (err) {
+    historyList.innerHTML = '<div class="history-empty">Could not reach the server.</div>';
+  }
+}
+
+historyBtn.addEventListener('click', openHistoryModal);
+closeHistoryModalBtn.addEventListener('click', closeHistoryModal);
+historyModal.addEventListener('click', (e) => {
+  if (e.target === historyModal) closeHistoryModal();
+});
 
 window.addEventListener('message', (e) => {
   if (e.origin === window.location.origin && e.data && e.data.type === 'closeSettings') closeSettings();
@@ -493,7 +862,15 @@ fileInput.addEventListener('change', () => {
   if (!file) return;
   selectedFile = file;
   previewName.textContent = file.name;
-  previewThumb.src = URL.createObjectURL(file);
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  if (isPdf) {
+    previewThumb.style.display = 'none';
+    previewPdfIcon.style.display = 'inline-flex';
+  } else {
+    previewThumb.src = URL.createObjectURL(file);
+    previewThumb.style.display = '';
+    previewPdfIcon.style.display = 'none';
+  }
   filePreview.style.display = 'flex';
   updateSendState();
 });
@@ -569,7 +946,13 @@ function addUserMessage({ file, url, note, audience, goals }) {
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
 
-  if (file) {
+  const isPdfFile = file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+  if (isPdfFile) {
+    const chip = document.createElement('div');
+    chip.className = 'pdf-chip';
+    chip.innerHTML = `<span class="material-symbols-outlined">picture_as_pdf</span>${escapeHtml(file.name)}`;
+    bubble.appendChild(chip);
+  } else if (file) {
     const img = document.createElement('img');
     img.className = 'thumb';
     img.src = URL.createObjectURL(file);
@@ -595,17 +978,130 @@ function addUserMessage({ file, url, note, audience, goals }) {
   scrollToBottom();
 }
 
+// Shows a one-off error on the main page (used when loading a history entry
+// fails) — same visual treatment as a failed live critique.
+function showMainError(message) {
+  messagesEl.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'msg error';
+  wrap.innerHTML = `<div class="bubble">${escapeHtml(message)}</div>`;
+  messagesEl.appendChild(wrap);
+  showResults();
+}
+
+// Renders a saved history record on the main page exactly like a finished
+// live critique: the original submission, then the result and its downloads.
+// History only keeps the submission's source (URL, or an uploaded image's
+// filename) and the annotated image if one was produced — not the original
+// unannotated upload — so an image-sourced entry shows its filename rather
+// than a thumbnail.
+function loadHistoryEntry(record) {
+  messagesEl.innerHTML = '';
+
+  const submissionWrap = document.createElement('div');
+  submissionWrap.className = 'msg user';
+  const submissionBubble = document.createElement('div');
+  submissionBubble.className = 'bubble';
+  const chip = document.createElement('div');
+  chip.className = 'url-chip';
+  chip.textContent = record.source_type === 'url' ? record.source : (record.source || 'Uploaded image');
+  submissionBubble.appendChild(chip);
+  const extraLines = [];
+  if (record.audience) extraLines.push(`Audience: ${record.audience}`);
+  if (record.goals) extraLines.push(`Goal: ${record.goals}`);
+  if (record.note) extraLines.push(record.note);
+  if (extraLines.length) {
+    const noteEl = document.createElement('div');
+    noteEl.className = 'note';
+    noteEl.textContent = extraLines.join('\n');
+    submissionBubble.appendChild(noteEl);
+  }
+  submissionWrap.appendChild(submissionBubble);
+  messagesEl.appendChild(submissionWrap);
+
+  const resultWrap = document.createElement('div');
+  resultWrap.className = 'msg agent';
+  const resultBubble = document.createElement('div');
+  resultBubble.className = 'bubble';
+  const imgHtml = record.annotated_image
+    ? `<img class="annotated" src="${record.annotated_image}" alt="Annotated design with numbered callouts">`
+    : '';
+  resultBubble.innerHTML = imgHtml + renderMarkdown(record.markdown || '');
+  resultWrap.appendChild(resultBubble);
+  messagesEl.appendChild(resultWrap);
+  addDownloadBar(resultWrap, record.markdown || '', record.annotated_image);
+
+  showResults();
+}
+
+// A critique runs up to 7 AI calls behind the scenes, so plain dots read as
+// stalled. Cycling a silly gerund (in the spirit of Claude's own loading
+// copy) makes the wait feel alive instead of frozen.
+const PROCESSING_WORDS = [
+  'Discombobulating', 'Dillydallying', 'Percolating', 'Noodling', 'Ruminating',
+  'Marinating', 'Cogitating', 'Squinting', 'Nitpicking', 'Pixel-peeping',
+  'Eyeballing', 'Scrutinizing', 'Untangling', 'Deliberating', 'Doodling',
+  'Mulling', 'Puzzling', 'Synthesizing', 'Daydreaming', 'Freeform-thinking',
+];
+let typingWordTimer = null;
+
+// A looping background video (60% opacity, see #synthOverlay in the
+// stylesheet) shown full-screen while a critique synthesizes. It's
+// pointer-events: none and only ever adds/removes its own overlay element,
+// so nothing else on the page is touched.
+function showSynthOverlay() {
+  clearInterval(typingWordTimer);
+  let overlay = document.getElementById('synthOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'synthOverlay';
+    overlay.innerHTML =
+      '<video class="synth-bg-video" autoplay muted loop playsinline disablepictureinpicture disableRemotePlayback aria-hidden="true">' +
+      '<source src="/assets/synthesizing-bg.mp4" type="video/mp4">' +
+      '</video>' +
+      '<span id="typingWord"></span>';
+    document.body.appendChild(overlay);
+  }
+  overlay.classList.add('open');
+  const video = overlay.querySelector('.synth-bg-video');
+  video.currentTime = 0;
+  video.play().catch(() => {}); // browsers can block autoplay until a user gesture; harmless if so
+  const wordEl = overlay.querySelector('#typingWord');
+  let word = PROCESSING_WORDS[Math.floor(Math.random() * PROCESSING_WORDS.length)];
+  wordEl.textContent = word + '…';
+  typingWordTimer = setInterval(() => {
+    let next = word;
+    while (next === word) next = PROCESSING_WORDS[Math.floor(Math.random() * PROCESSING_WORDS.length)];
+    word = next;
+    wordEl.textContent = word + '…';
+    wordEl.style.animation = 'none';
+    wordEl.offsetWidth; // restart the fade-in
+    wordEl.style.animation = '';
+  }, 2200);
+}
+
+function hideSynthOverlay() {
+  clearInterval(typingWordTimer);
+  typingWordTimer = null;
+  const overlay = document.getElementById('synthOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  const video = overlay.querySelector('.synth-bg-video');
+  if (video) video.pause();
+}
+
 function addTypingBubble() {
   const wrap = document.createElement('div');
-  wrap.className = 'msg agent';
+  wrap.className = 'msg agent hidden';
   wrap.id = 'typingBubble';
-  wrap.innerHTML = `<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  wrap.innerHTML = '<div class="bubble"></div>';
   messagesEl.appendChild(wrap);
-  scrollToBottom();
+  showSynthOverlay();
   return wrap;
 }
 
 function replaceTyping(html, isError, annotatedImageDataUrl) {
+  hideSynthOverlay();
   const typing = document.getElementById('typingBubble');
   if (!typing) return;
   typing.className = isError ? 'msg error' : 'msg agent';
@@ -641,7 +1137,7 @@ function saveBlob(blob, filename) {
 
 function critiqueMarkdownFile(markdown, imageDataUrl) {
   const image = imageDataUrl ? `![Annotated design with numbered callouts](${imageDataUrl})\n\n` : '';
-  return `# Design Critique\n\n${image}${markdown.trim()}\n`;
+  return `# It Works\n\n${image}${markdown.trim()}\n\n---\nDesigned by Melria Gomes\n`;
 }
 
 function addDownloadBar(msgEl, markdown, imageDataUrl) {
@@ -705,6 +1201,11 @@ function setBusy(next) {
   sendBtn.innerHTML = busy
     ? 'Critiquing… <span class="material-symbols-outlined">hourglass_top</span>'
     : 'Send <span class="material-symbols-outlined">send</span>';
+  // Starting a new analysis, or loading a history entry, while one is in
+  // flight would clear the messages the in-flight request is about to write
+  // its result into — block both.
+  newAnalysisBtn.disabled = next;
+  historyBtn.disabled = next;
   updateSendState();
 }
 
@@ -728,6 +1229,11 @@ sendBtn.addEventListener('click', async () => {
   if (note) formData.append('note', note);
   if (audience) formData.append('audience', audience);
   if (goals) formData.append('goals', goals);
+
+  // The modal is input-only — submitting reveals the result on the main page
+  // and dismisses it.
+  showResults();
+  closeChatModal();
 
   // Attach whichever Figma key this visitor marked active in Settings, if
   // any — only used for figma.com links. Falls back to the server's shared

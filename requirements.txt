@@ -7,3 +7,4 @@ Pillow
 gunicorn
 google-auth
 python-docx
+pymupdf

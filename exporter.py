@@ -18,16 +18,19 @@ import io
 import re
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
-TITLE = "Design Critique"
+TITLE = "It Works"
+WATERMARK_TEXT = "Designed by Melria Gomes"
 DATA_URL_RE = re.compile(r"^data:image/(png|jpeg);base64,([A-Za-z0-9+/=]+)$")
 BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 BULLET_RE = re.compile(r"^[-*]\s+")
 NUMBERED_RE = re.compile(r"^\d+\.\s+")
-ACCENT = RGBColor(0x6F, 0x00, 0xFF)
+ACCENT = RGBColor(0x2E, 0x48, 0xD6)  # Electric Sapphire, darkened for print contrast
+MUTED = RGBColor(0x8A, 0x8A, 0x8A)
 
 
 def decode_image_data_url(data_url):
@@ -103,11 +106,24 @@ def inline_runs(text):
     return runs
 
 
+def _add_docx_watermark(doc):
+    """A single watermark line, bottom-right of every page, via the section
+    footer (footers repeat on every page a Word document renders)."""
+    footer = doc.sections[0].footer
+    footer.is_linked_to_previous = False
+    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run = paragraph.add_run(WATERMARK_TEXT)
+    run.font.size = Pt(8)
+    run.font.color.rgb = MUTED
+
+
 def to_docx(md, image_bytes=None):
     """Render the critique as .docx bytes."""
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(11)
+    _add_docx_watermark(doc)
     doc.add_heading(TITLE, level=0)
 
     if image_bytes:
@@ -163,16 +179,16 @@ def to_html(md, image_bytes=None, mime=None):
 <html lang="en"><head><meta charset="UTF-8"><title>{html.escape(TITLE)}</title>
 <style>
   body {{ font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-         color: #3B0270; font-size: 11pt; line-height: 1.55; margin: 0; }}
+         color: #07240F; font-size: 11pt; line-height: 1.55; margin: 0; }}
   h1 {{ font-size: 20pt; margin: 0 0 12pt; }}
   h2 {{ font-size: 14pt; margin: 18pt 0 6pt; }}
-  h3 {{ font-size: 12pt; margin: 14pt 0 4pt; color: #6F00FF; }}
+  h3 {{ font-size: 12pt; margin: 14pt 0 4pt; color: #3B3664; }}
   h2, h3 {{ break-after: avoid; }}
   p {{ margin: 0 0 6pt; }}
   ul, ol {{ margin: 0 0 6pt; padding-left: 18pt; }}
   li {{ margin-bottom: 3pt; break-inside: avoid; }}
-  strong {{ color: #6F00FF; }}
-  img {{ display: block; box-sizing: border-box; max-width: 100%; border: 1px solid #F1D6F8; border-radius: 6pt; margin: 0 0 12pt; }}
+  strong {{ color: #2E48D6; }}
+  img {{ display: block; box-sizing: border-box; max-width: 100%; border: 1px solid #BCEBD8; border-radius: 6pt; margin: 0 0 12pt; }}
 </style></head><body>{"".join(parts)}</body></html>"""
 
 
@@ -190,7 +206,14 @@ def to_pdf(md, image_bytes=None, mime=None):
             return page.pdf(
                 format="A4",
                 print_background=True,
-                margin={"top": "18mm", "bottom": "18mm", "left": "16mm", "right": "16mm"},
+                display_header_footer=True,
+                header_template="<span></span>",
+                footer_template=(
+                    '<div style="width:100%; font-size:8px; color:#8A8A8A; '
+                    'font-family:Helvetica,Arial,sans-serif; text-align:right; '
+                    f'padding-right:16mm;">{html.escape(WATERMARK_TEXT)}</div>'
+                ),
+                margin={"top": "18mm", "bottom": "22mm", "left": "16mm", "right": "16mm"},
             )
         finally:
             browser.close()
