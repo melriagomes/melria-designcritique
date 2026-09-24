@@ -13,6 +13,7 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pymupdf as fitz
 import requests
 from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
@@ -24,6 +25,11 @@ import figma_reader
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 PAGE_LOAD_TIMEOUT_MS = 15_000
+# A PDF submission is rasterized page-by-page and stacked into one tall
+# image, same as everything else this module hands downstream. Capped so a
+# huge deck doesn't blow past the per-provider vision-input limits below.
+MAX_PDF_PAGES = 10
+PDF_RENDER_DPI = 150
 # Per-provider vision input limits. max_bytes is the raw image size, kept low
 # enough that the base64-encoded copy sent in the request still fits.
 IMAGE_LIMITS = {
@@ -39,6 +45,10 @@ _default_logger = logging.getLogger(__name__)
 def looks_like_image_extension(filename):
     ext = Path(filename or "").suffix.lower()
     return ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def looks_like_pdf_extension(filename):
+    return Path(filename or "").suffix.lower() == ".pdf"
 
 
 def downscale_for_provider(image_bytes, mime, provider, logger=None):
@@ -124,6 +134,51 @@ def resolve_uploaded_image(file_storage):
         mime = guessed or "image/png"
 
     return data, mime, None
+
+
+def resolve_uploaded_pdf(file_storage):
+    """Rasterize an uploaded PDF into one PNG: each page (up to
+    MAX_PDF_PAGES) rendered at PDF_RENDER_DPI and stacked vertically, so the
+    rest of the pipeline still only ever deals with a single static image."""
+    data = file_storage.read()
+    if not data:
+        return None, None, "That PDF file appears to be empty."
+    if len(data) > MAX_UPLOAD_BYTES:
+        return None, None, "That PDF is larger than the 10MB limit."
+
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+    except Exception as exc:  # noqa: BLE001 - PyMuPDF raises its own exception types for bad PDFs
+        return None, None, f"Could not open that PDF ({exc})."
+
+    try:
+        if doc.page_count == 0:
+            return None, None, "That PDF has no pages."
+
+        zoom = PDF_RENDER_DPI / 72
+        matrix = fitz.Matrix(zoom, zoom)
+        pages = []
+        for i in range(min(doc.page_count, MAX_PDF_PAGES)):
+            pix = doc[i].get_pixmap(matrix=matrix, alpha=False)
+            pages.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    finally:
+        doc.close()
+
+    if len(pages) == 1:
+        combined = pages[0]
+    else:
+        width = max(p.width for p in pages)
+        gap = 12
+        total_height = sum(p.height for p in pages) + gap * (len(pages) - 1)
+        combined = Image.new("RGB", (width, total_height), "white")
+        y = 0
+        for page in pages:
+            if page.width != width:
+                page = page.resize((width, round(page.height * width / page.width)), Image.LANCZOS)
+            combined.paste(page, (0, y))
+            y += page.height + gap
+
+    return _encode_png(combined), "image/png", None
 
 
 def resolve_url_to_image(url, access_token_override=None, logger=None):

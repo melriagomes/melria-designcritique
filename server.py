@@ -8,9 +8,10 @@ image or URL to the **Design Reader** (`design_reader`, backed by
 understanding pass, four independent discipline specialists (UI/UX, Graphic
 Design, Product Design, Interaction Design), a synthesis pass, and a
 localization pass; then hands the located findings to the **Screenshot
-Annotator** (`screenshot_annotator`) to render one annotated image. Kept
-deliberately small otherwise: no database and no conversation memory — one
-request in, one critique out, per plan.md's MVP scope.
+Annotator** (`screenshot_annotator`) to render one annotated image. Each
+request is still handled independently — no conversation memory — but the
+finished result is saved to that account's history (`history`, a SQLite file
+on a persistent volume) so it can be revisited via /api/history.
 
 Every page and API route requires Google sign-in with an allowed-domain
 account (`auth`); the signed-in user lives only in Flask's signed session
@@ -38,15 +39,18 @@ import design_reader
 import evidence_reporting
 import exporter
 import figma_reader
+import history
 import screenshot_annotator
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
 
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = design_reader.MAX_UPLOAD_BYTES + 1024 * 1024  # small margin for form overhead
 app.logger.setLevel(logging.INFO)
+history.init_db()
 
 # Signs the session cookie that holds the signed-in user. Without a fixed
 # SECRET_KEY every restart (and every deploy) signs everyone out.
@@ -188,6 +192,15 @@ def require_sign_in(view):
     return wrapped
 
 
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    """Static files (e.g. the login page's background video) — public, since
+    the login page itself loads before anyone is signed in."""
+    response = send_from_directory(ASSETS_DIR, filename)
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 @app.route("/")
 def index():
     return signed_in_page("index.html")
@@ -222,6 +235,21 @@ def sign_out():
 @require_sign_in
 def me():
     return jsonify({"user": current_user()})
+
+
+@app.route("/api/history")
+@require_sign_in
+def list_history():
+    return jsonify({"analyses": history.list_analyses(current_user()["email"])})
+
+
+@app.route("/api/history/<int:analysis_id>")
+@require_sign_in
+def get_history(analysis_id):
+    record = history.get_analysis(current_user()["email"], analysis_id)
+    if not record:
+        return error_response("That analysis wasn't found.", status=404)
+    return jsonify({"analysis": record})
 
 
 @app.route("/api/export", methods=["POST"])
@@ -263,6 +291,7 @@ def critique():
     image_file = request.files.get("image")
     url = (request.form.get("url") or "").strip()
     note = (request.form.get("note") or "").strip()
+    user_note = note  # `note` gets reused below for the annotation-status line — keep the original for history
     audience = (request.form.get("audience") or "").strip()
     goals = (request.form.get("goals") or "").strip()
     # The visitor's currently-active Figma key from the Settings page (browser
@@ -286,7 +315,13 @@ def critique():
 
     # --- Design Reader: resolve the submission to one static image ---------
     if has_image:
-        image_bytes, mime, err = design_reader.resolve_uploaded_image(image_file)
+        is_pdf = image_file.mimetype == "application/pdf" or design_reader.looks_like_pdf_extension(
+            image_file.filename
+        )
+        if is_pdf:
+            image_bytes, mime, err = design_reader.resolve_uploaded_pdf(image_file)
+        else:
+            image_bytes, mime, err = design_reader.resolve_uploaded_image(image_file)
     else:
         image_bytes, mime, err = design_reader.resolve_url_to_image(
             url, access_token_override=access_token_override, logger=app.logger
@@ -429,6 +464,21 @@ def critique():
     response = {"reply": final_text}
     if annotated_image_data_url:
         response["annotated_image"] = annotated_image_data_url
+
+    try:
+        history.save_analysis(
+            current_user()["email"],
+            "image" if has_image else "url",
+            image_file.filename if has_image else url,
+            user_note,
+            audience,
+            goals,
+            final_text,
+            annotated_image_data_url,
+        )
+    except Exception as exc:  # noqa: BLE001 - saving to history is best-effort, never break the critique over it
+        app.logger.warning("saving to history failed: %s", exc)
+
     return jsonify(response)
 
 
