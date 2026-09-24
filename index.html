@@ -91,8 +91,6 @@
     background: var(--panel);
   }
   header {
-    position: relative;
-    z-index: 65;
     padding: 1.25rem 2rem;
     border-bottom: 1px solid var(--border);
     background: var(--panel-soft);
@@ -358,14 +356,20 @@
   .bubble li { margin-bottom: 0.25rem; }
 
   /* Synthesizing overlay: a looping background video (60% opacity) shown
-     full-screen while a critique is synthesizing (up to 7 backend AI calls),
-     and dismissed the moment the result comes back. Everything else on the
-     page is untouched — this only ever adds/removes itself. */
+     while a critique is synthesizing (up to 7 backend AI calls), and
+     dismissed the moment the result comes back. It's sized to stop below
+     the header (its `top` is set in JS from the header's real height) so
+     the site name, tagline, and header buttons stay visible and clickable
+     the whole time — and so it never overlaps/out-ranks the Settings,
+     History, or New-analysis modals, which are unchanged. */
   #synthOverlay {
     display: none;
     position: fixed;
-    inset: 0;
-    z-index: 60;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
     align-items: center;
     justify-content: center;
     overflow: hidden;
@@ -1046,9 +1050,10 @@ const PROCESSING_WORDS = [
 let typingWordTimer = null;
 
 // A looping background video (60% opacity, see #synthOverlay in the
-// stylesheet) shown full-screen while a critique synthesizes. It's
-// pointer-events: none and only ever adds/removes its own overlay element,
-// so nothing else on the page is touched.
+// stylesheet) shown while a critique synthesizes. It's pointer-events: none
+// and only ever adds/removes its own overlay element, so nothing else on
+// the page is touched — and it's kept clear of the header (see below) so
+// the site name, tagline, and header buttons stay visible throughout.
 function showSynthOverlay() {
   clearInterval(typingWordTimer);
   let overlay = document.getElementById('synthOverlay');
@@ -1062,6 +1067,8 @@ function showSynthOverlay() {
       '<span id="typingWord"></span>';
     document.body.appendChild(overlay);
   }
+  const header = document.querySelector('header');
+  overlay.style.top = (header ? header.getBoundingClientRect().height : 0) + 'px';
   overlay.classList.add('open');
   const video = overlay.querySelector('.synth-bg-video');
   video.currentTime = 0;
