@@ -92,8 +92,8 @@ specialists; `screenshot-annotator` as a shared skill):
   pass-through, downscaling to the AI provider's image limits, and Playwright screenshots of other webpages — lives in
   `design_reader.py`.
 - `evidence_reporting.py` (+ `ai_client.py`) — the **specialist agents and synthesizer**: a shared
-  understanding pass, four independent discipline critics (UI/UX, Graphic Design, Product Design,
-  Interaction Design, each seeing the image but never each other's output), a synthesis pass that merges
+  understanding pass, five independent discipline critics (UI/UX, Graphic Design, Product Design,
+  Interaction Design, Design Research, each seeing the image but never each other's output), a synthesis pass that merges
   their findings into one report, and a localization pass that grounds each numbered finding in a region
   of the image (or explicitly leaves it unmarked when the finding isn't tied to one visible spot).
   `ai_client.py` is the shared AI call every pass above uses. It runs on the app's shared Groq key by
