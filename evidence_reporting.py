@@ -2,8 +2,8 @@
 
 Given one static image (from `design_reader`) and the submitter's context,
 this module runs the shared-understanding pass, the independent discipline
-specialists (UI/UX, Graphic Design, Product Design, Interaction Design), the
-synthesis pass that merges their findings into one report, and a
+specialists (UI/UX, Graphic Design, Product Design, Interaction Design,
+Design Research), the synthesis pass that merges their findings into one report, and a
 localization pass that grounds each numbered finding in a region of the
 image so `screenshot_annotator` has something to draw. Every step is a
 vision-model call via `ai_client.call_ai_chat`, on whichever AI provider the
@@ -236,12 +236,66 @@ should exist, change, or be removed>
 """
 
 
-DISCIPLINE_LABELS = ["UI/UX", "Graphic Design", "Product Design", "Interaction Design"]
+DESIGN_RESEARCH_PROMPT = f"""You are a design research specialist reviewing a single image of a research \
+artifact — a FigJam/Figma board, affinity map, persona, journey map, service blueprint, stakeholder map, \
+research canvas, or similar — alongside a shared understanding of the design and whatever context the \
+submitter provided. Your responsibility is to evaluate the rigor, traceability, and evidentiary grounding \
+of the research itself, not the visual polish of the board or the usability of a product screen.
+
+{CRITIC_BEHAVIOR}
+
+Evaluate: whether claims are traceable to visible evidence (participant quotes, observed behaviors, \
+survey data) versus stated as unsupported researcher interpretation, whether frequency is being conflated \
+with importance, whether contradictions in the evidence are acknowledged or silently resolved, whether \
+personas or journeys are grounded in real data versus assumed/stereotyped, whether sample size and \
+research method are stated or inferable, whether spatial clustering on the board reflects an intentional \
+grouping or ambiguous proximity, and whether confidence in each finding is proportionate to the evidence \
+actually shown.
+
+As you evaluate, consider: Can each claim on the board be traced back to a specific piece of evidence? Is \
+researcher interpretation clearly distinguished from raw participant/user data? Are contradictions in the \
+evidence visible and preserved, or has the board flattened them into a single tidy narrative? Would a \
+reader unfamiliar with the raw data know how confident to be in each finding? Are personas or journeys \
+presented as data when they are actually hypotheses? Is anything asserted that the visible evidence \
+can't actually support?
+
+Do not primarily evaluate visual layout, typography, color, product strategy, or interaction mechanics — \
+these belong primarily to other specialists. Stay strictly inside your lane even where you notice \
+something outside it.
+
+Ground every finding in what's actually visible on the board — name the specific sticky note, cluster, \
+persona, or map region rather than speaking generically. Never invent a participant quote, statistic, or \
+research method that isn't visible in the image.
+
+Use Markdown **bold** to mark the single most important word, number, or element in every sentence you \
+write — never bold a whole sentence.
+
+Reply in exactly this Markdown structure and nothing else:
+
+## Overview
+One sentence on how rigorously and traceably this research artifact presents its evidence, with the key \
+point **bolded**.
+
+## Issues
+### <Category name, e.g. Evidence Traceability, Interpretation vs. Observation, Contradiction Handling, Confidence>
+- **Problem:** (Observed|Inferred) <what research-rigor issue exists, with the key element **bolded**>
+  **Evidence Basis:** <exactly what is or isn't visible on the board to support this>
+  **Risk:** <what conclusion could be wrongly trusted or acted on as a result, with the key consequence \
+**bolded**>
+  **Recommendation:** <specific, actionable change — e.g. what evidence to add, what claim to relabel as \
+a hypothesis, what contradiction to surface — with the key action **bolded**>
+
+(repeat the `### <Category>` block for each category that applies)
+"""
+
+
+DISCIPLINE_LABELS = ["UI/UX", "Graphic Design", "Product Design", "Interaction Design", "Design Research"]
 DISCIPLINE_PROMPTS = {
     "UI/UX": UI_UX_PROMPT,
     "Graphic Design": GRAPHIC_DESIGN_PROMPT,
     "Product Design": PRODUCT_DESIGN_PROMPT,
     "Interaction Design": INTERACTION_DESIGN_PROMPT,
+    "Design Research": DESIGN_RESEARCH_PROMPT,
 }
 
 
@@ -266,8 +320,9 @@ guessing.
 End your reply with exactly one line in this exact format, listing only the disciplines genuinely \
 relevant to critiquing this specific design (for example: a static poster with no interface has no \
 Interaction Design relevance; a design with no stated goal/audience and no product framing has limited \
-Product Design relevance) — never omit a discipline that plausibly applies just to shorten the list:
-RELEVANT_SPECIALISTS: <comma-separated list drawn from UI/UX, Graphic Design, Product Design, Interaction Design>
+Product Design relevance; a product screen with no visible research artifact has no Design Research \
+relevance) — never omit a discipline that plausibly applies just to shorten the list:
+RELEVANT_SPECIALISTS: <comma-separated list drawn from UI/UX, Graphic Design, Product Design, Interaction Design, Design Research>
 
 Keep the rest of your reply under 200 words, in compact Markdown — this is shared background for other \
 reviewers to read, not a critique of its own.
@@ -291,6 +346,21 @@ def parse_understanding(text):
     relevant = [label for label in DISCIPLINE_LABELS if label.lower() in candidates]
     clean_text = text[: match.start()].strip()
     return clean_text, (relevant or list(DISCIPLINE_LABELS))
+
+
+def parse_discipline_selection(raw):
+    """Parse the submitter's chosen disciplines from the "New analysis" modal
+    (a comma-separated string of labels, e.g. "UI/UX,Graphic Design") into a
+    de-duplicated list ordered like DISCIPLINE_LABELS.
+
+    Returns [] for blank/None input or when nothing recognizable was found —
+    that means "no override; fall back to automatic relevance detection",
+    never "critique with zero disciplines."
+    """
+    if not raw:
+        return []
+    requested = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    return [label for label in DISCIPLINE_LABELS if label.lower() in requested]
 
 
 def build_agent_user_text(shared_understanding, context_block):

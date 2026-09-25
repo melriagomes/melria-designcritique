@@ -5,8 +5,8 @@ orchestrator described in the project's architecture: it hands a submitted
 image or URL to the **Design Reader** (`design_reader`, backed by
 `figma_reader` for Figma links) to resolve one static image; runs the
 **Evidence & Reporting** pipeline (`evidence_reporting`) — a shared
-understanding pass, four independent discipline specialists (UI/UX, Graphic
-Design, Product Design, Interaction Design), a synthesis pass, and a
+understanding pass, five independent discipline specialists (UI/UX, Graphic
+Design, Product Design, Interaction Design, Design Research), a synthesis pass, and a
 localization pass; then hands the located findings to the **Screenshot
 Annotator** (`screenshot_annotator`) to render one annotated image. Each
 request is still handled independently — no conversation memory — but the
@@ -354,9 +354,17 @@ def critique():
         # the whole request over it.
         app.logger.warning("understanding pass failed: %s", understanding_err)
         shared_understanding = "(Shared understanding pass unavailable — each specialist is reviewing independently.)"
-        relevant_labels = list(evidence_reporting.DISCIPLINE_LABELS)
+        auto_relevant_labels = list(evidence_reporting.DISCIPLINE_LABELS)
     else:
-        shared_understanding, relevant_labels = evidence_reporting.parse_understanding(understanding_raw)
+        shared_understanding, auto_relevant_labels = evidence_reporting.parse_understanding(understanding_raw)
+
+    # The submitter can pick which discipline(s) to critique from in the "New
+    # analysis" modal's "Critique focus" chips; when they do, that explicit
+    # choice overrides the automatic relevance detection above rather than
+    # being combined with it. An empty selection ("Auto") keeps the
+    # automatic behavior.
+    user_chosen_labels = evidence_reporting.parse_discipline_selection(request.form.get("disciplines"))
+    relevant_labels = user_chosen_labels or auto_relevant_labels
 
     agent_user_text = evidence_reporting.build_agent_user_text(shared_understanding, context_block)
 
@@ -395,10 +403,12 @@ def critique():
     synthesis_context_lines = [context_block, f"Shared design understanding:\n{shared_understanding}"]
     skipped = [label for label in evidence_reporting.DISCIPLINE_LABELS if label not in relevant_labels]
     if skipped:
-        synthesis_context_lines.append(
-            "Not run (judged not relevant to this design by the initial understanding pass): "
-            + ", ".join(skipped)
+        reason = (
+            "excluded by the submitter's own discipline selection"
+            if user_chosen_labels
+            else "judged not relevant to this design by the initial understanding pass"
         )
+        synthesis_context_lines.append(f"Not run ({reason}): " + ", ".join(skipped))
     if failures:
         synthesis_context_lines.append(
             "Not included below (a technical failure, not a design finding): " + ", ".join(failures)
